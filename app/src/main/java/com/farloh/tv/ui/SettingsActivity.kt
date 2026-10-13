@@ -9,6 +9,9 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
+import android.widget.ImageView
+import androidx.activity.OnBackPressedCallback
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.farloh.tv.BuildConfig
@@ -23,12 +26,24 @@ import kotlinx.coroutines.launch
 class SettingsActivity : BaseActivity() {
 
     private sealed class Row {
-        class Header(val title: String) : Row()
+        class Header(val title: String, val key: String, val icon: Int, val summary: String = "") : Row()
         class Item(val title: String, val value: String, val hint: String? = null, val action: () -> Unit) : Row()
     }
 
     private lateinit var list: RecyclerView
+    private lateinit var screenTitle: TextView
     private var rows: List<Row> = emptyList()
+
+    /** Settings home shows one box per section; a box opens that section's page. */
+    private class Group(val header: Row.Header, val items: List<Row>)
+    private var groups: List<Group> = emptyList()
+    private var openKey: String? = null
+
+    private val tileAdapter = SimpleAdapter<Row.Header>(R.layout.item_settings_tile, 1.05f) { v, h, _ ->
+        v.findViewById<ImageView>(R.id.icon).setImageResource(h.icon)
+        v.findViewById<TextView>(R.id.title).text = h.title
+        v.findViewById<TextView>(R.id.summary).text = h.summary
+    }
     private var parentalUnlocked = false
 
     private val adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
@@ -68,28 +83,86 @@ class SettingsActivity : BaseActivity() {
         super.onCreate(savedInstanceState)
         if (requireAccount() == null) return
         setContentView(R.layout.activity_settings)
-        findViewById<View>(R.id.back).setOnClickListener { finish() }
+        screenTitle = findViewById(R.id.screenTitle)
+        findViewById<View>(R.id.back).setOnClickListener { onBackPressedDispatcher.onBackPressed() }
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (openKey != null) showHome() else finish()
+            }
+        })
         list = findViewById(R.id.list)
         // Keep rows readable on very wide TV screens.
-        if (screenWidthDp > 900) list.layoutParams = list.layoutParams.apply { width = dp(820) }
-        list.layoutManager = LinearLayoutManager(this)
+        if (screenWidthDp > 900) list.layoutParams = list.layoutParams.apply { width = dp(860) }
         list.itemAnimator = null
+        tileAdapter.onClick = { h, _ -> openSection(h.key) }
+        groups = buildGroups()
+        val start = intent.getStringExtra(EXTRA_OPEN)
+        if (start != null && groups.any { it.header.key == start }) openSection(start) else showHome()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::list.isInitialized) refresh()
+    }
+
+    private fun buildGroups(): List<Group> {
+        val out = ArrayList<Group>()
+        var header: Row.Header? = null
+        var items = ArrayList<Row>()
+        for (row in buildRows()) {
+            if (row is Row.Header) {
+                header?.let { out.add(Group(it, items)) }
+                header = row
+                items = ArrayList()
+            } else {
+                items.add(row)
+            }
+        }
+        header?.let { out.add(Group(it, items)) }
+        return out
+    }
+
+    private fun showHome() {
+        val previous = openKey
+        openKey = null
+        screenTitle.text = "Settings"
+        val widthDp = if (screenWidthDp > 900) 860 else screenWidthDp - 24
+        list.layoutManager = GridLayoutManager(this, (widthDp / 200).coerceIn(2, 4))
+        list.adapter = tileAdapter
+        tileAdapter.submit(groups.map { it.header })
+        val focusIndex = groups.indexOfFirst { it.header.key == previous }.coerceAtLeast(0)
+        list.post { list.layoutManager?.findViewByPosition(focusIndex)?.requestFocus() }
+    }
+
+    private fun openSection(key: String) {
+        val g = groups.firstOrNull { it.header.key == key } ?: return
+        openKey = key
+        screenTitle.text = "Settings  ›  ${g.header.title}"
+        list.layoutManager = LinearLayoutManager(this)
         list.adapter = adapter
-        refresh()
-        list.post { list.layoutManager?.findViewByPosition(1)?.requestFocus() }
+        rows = g.items
+        adapter.notifyDataSetChanged()
+        list.scrollToPosition(0)
+        list.post { list.layoutManager?.findViewByPosition(0)?.requestFocus() }
     }
 
     /** Rebuilds the rows after any change; keeps focus where it was. */
     private fun refresh() {
+        groups = buildGroups()
+        val key = openKey
+        if (key == null) {
+            tileAdapter.submit(groups.map { it.header })
+            return
+        }
         val oldSize = rows.size
-        rows = buildRows()
+        rows = groups.firstOrNull { it.header.key == key }?.items ?: emptyList()
         if (oldSize == rows.size) adapter.notifyItemRangeChanged(0, rows.size) else adapter.notifyDataSetChanged()
     }
 
     private fun buildRows(): List<Row> {
         val r = ArrayList<Row>()
 
-        r += Row.Header("General")
+        r += Row.Header("General", "general", R.drawable.ic_settings, "Subtitles, picture-in-picture, recently added, history")
         r += Row.Item("Subtitles", label(SUB_MODES, store.subtitleMode),
             "Auto shows subtitles only when the stream marks them as default") {
             Dialogs.choose(this, "Subtitles", SUB_MODES.map { it.second }, SUB_MODES.map { it.first }, store.subtitleMode) {
@@ -125,12 +198,13 @@ class SettingsActivity : BaseActivity() {
                 listOf(false, true), store.externalByDefault) { store.externalByDefault = it; refresh() }
         }
 
-        r += Row.Header("Player")
+        r += Row.Header("Player", "player", R.drawable.ic_play,
+            "Decoder ${label(DECODERS, store.decoderMode)} • ${label(BUFFERS, store.bufferSize)} buffer • gestures, Back button")
         r += Row.Item("Decoder", label(DECODERS, store.decoderMode), DECODER_HINTS[store.decoderMode]) {
             Dialogs.choose(this, "Decoder", DECODERS.map { "${it.second} – ${DECODER_HINTS[it.first]}" },
                 DECODERS.map { it.first }, store.decoderMode) { store.decoderMode = it; refresh() }
         }
-        r += Row.Item("Video screen size", label(RESIZES, store.videoResize), "Can also be changed while watching (Video button)") {
+        r += Row.Item("Video screen size", label(RESIZES, store.videoResize), "Can also be changed while watching (Options button)") {
             Dialogs.choose(this, "Video screen size", RESIZES.map { it.second }, RESIZES.map { it.first }, store.videoResize) {
                 store.videoResize = it; refresh()
             }
@@ -150,7 +224,8 @@ class SettingsActivity : BaseActivity() {
             }
         }
 
-        r += Row.Header("Online subtitles (OpenSubtitles.com)")
+        r += Row.Header("Online subtitles", "subtitles", R.drawable.ic_subtitles,
+            if (store.subsApiKey.isBlank()) "OpenSubtitles – not set up yet" else "OpenSubtitles – ${if (store.subsServer == "vip") "VIP server" else if (store.subsServer == "custom") "custom server" else "default server"}")
         r += Row.Item("Subtitle server", when (store.subsServer) {
             "vip" -> "VIP API server"; "custom" -> "Custom"; else -> "Default server"
         }, when (store.subsServer) {
@@ -206,7 +281,8 @@ class SettingsActivity : BaseActivity() {
                 .show()
         }
 
-        r += Row.Header("Parental control")
+        r += Row.Header("Parental control", "parental", R.drawable.ic_lock,
+            "PIN ${if (store.hasPin) "on" else "off"} • ${Section.values().sumOf { store.hiddenCategories(it).size }} group(s) hidden")
         for (s in Section.values()) {
             val n = store.hiddenCategories(s).size
             r += Row.Item("Hide groups in ${s.title}", if (n == 0) "None hidden" else "$n hidden") {
@@ -218,7 +294,8 @@ class SettingsActivity : BaseActivity() {
             unlockParental { pinOptions() }
         }
 
-        r += Row.Header("Screen")
+        r += Row.Header("Screen", "screen", R.drawable.ic_screen,
+            "App size ${store.uiZoom}% • ${if (store.orientation == "auto") "auto-rotate" else "landscape"}")
         r += Row.Item("App size (zoom)", "${store.uiZoom}%",
             "Smaller = more fits on screen. Ignores the phone's own display-size setting") {
             Dialogs.choose(this, "App size", ZOOMS.map { if (it == 100) "100% (standard)" else "$it%" }, ZOOMS, store.uiZoom) {
@@ -237,7 +314,8 @@ class SettingsActivity : BaseActivity() {
             }
         }
 
-        r += Row.Header("Device")
+        r += Row.Header("Device", "device", R.drawable.ic_series,
+            "Mode: " + when (store.deviceMode) { "tv" -> "TV"; "mobile" -> "Mobile"; else -> "Auto (${if (detectedTv) "TV" else "Mobile"})" })
         r += Row.Item("Device mode", when (store.deviceMode) {
             "tv" -> "TV"; "mobile" -> "Mobile"; else -> "Auto (${if (detectedTv) "TV" else "Mobile"})"
         }, "Use TV for remote-control layout, Mobile for touch layout") {
@@ -253,7 +331,7 @@ class SettingsActivity : BaseActivity() {
             }
         }
 
-        r += Row.Header("Playlist: ${store.activePlaylist?.name.orEmpty()}")
+        r += Row.Header("Playlist", "playlist", R.drawable.ic_playlist, store.activePlaylist?.name.orEmpty())
         r += Row.Item("Account info", store.account?.username.orEmpty()) { showAccountInfo() }
         r += Row.Item("Clear saved lists", "", "Live TV, Movies and TV Shows download again next time") {
             Dialogs.confirm(this, "Clear saved lists?", "They will download again next time you open each section.") {
@@ -263,7 +341,7 @@ class SettingsActivity : BaseActivity() {
             }
         }
 
-        r += Row.Header("About")
+        r += Row.Header("About", "about", R.drawable.ic_info, "Version ${BuildConfig.VERSION_NAME}")
         r += Row.Item("Farloh TV", "Version ${BuildConfig.VERSION_NAME}") { }
         return r
     }
@@ -379,7 +457,7 @@ class SettingsActivity : BaseActivity() {
     private fun restartApp() {
         startActivities(arrayOf(
             Intent(this, HomeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
-            Intent(this, SettingsActivity::class.java),
+            Intent(this, SettingsActivity::class.java).putExtra(EXTRA_OPEN, "screen"),
         ))
         finish()
     }
@@ -389,6 +467,7 @@ class SettingsActivity : BaseActivity() {
     private fun label(options: List<Pair<String, String>>, value: String) = options.firstOrNull { it.first == value }?.second.orEmpty()
 
     companion object {
+        const val EXTRA_OPEN = "open_section"
         private val SUB_MODES = listOf("auto" to "Auto", "on" to "Always on", "off" to "Off")
         private val DECODERS = listOf("hw" to "HW", "hwplus" to "HW+", "sw" to "SW")
         private val DECODER_HINTS = mapOf(

@@ -140,13 +140,23 @@ class Store private constructor(context: Context) {
     fun itemCount(section: Section): Int = prefs.getInt(k("count_${section.key}"), -1)
     fun setItemCount(section: Section, count: Int) = prefs.edit().putInt(k("count_${section.key}"), count).apply()
 
-    fun favorites(): MutableSet<String> = HashSet(prefs.getStringSet(k("favorites"), emptySet()) ?: emptySet())
+    /** Favourites are kept separately for Live TV, Movies and TV Shows (their ids can overlap). */
+    private fun favKey(section: Section) = when (section) {
+        Section.LIVE -> k("favorites")
+        Section.MOVIES -> k("favorites_vod")
+        Section.SERIES -> k("favorites_series")
+    }
 
-    /** Returns true if the channel is now a favourite. */
-    fun toggleFavorite(id: String): Boolean {
-        val set = favorites()
+    fun favorites(section: Section = Section.LIVE): MutableSet<String> =
+        HashSet(prefs.getStringSet(favKey(section), emptySet()) ?: emptySet())
+
+    fun isFavorite(section: Section, id: String) = favorites(section).contains(id)
+
+    /** Returns true if the item is now a favourite. */
+    fun toggleFavorite(id: String, section: Section = Section.LIVE): Boolean {
+        val set = favorites(section)
         val added = if (set.contains(id)) { set.remove(id); false } else { set.add(id); true }
-        prefs.edit().putStringSet(k("favorites"), set).apply()
+        prefs.edit().putStringSet(favKey(section), set).apply()
         return added
     }
 

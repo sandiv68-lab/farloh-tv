@@ -17,6 +17,25 @@ import java.util.concurrent.ConcurrentHashMap
 
 class SectionData(val categories: List<Category>, val items: List<CatalogItem>, val updatedAt: Long) {
     val byCategory: Map<String, List<CatalogItem>> by lazy { items.groupBy { it.categoryId } }
+
+    /** Lower-case names, built once (off the main thread) so searching big playlists stays instant. */
+    val searchNames: Array<String> by lazy { Array(items.size) { items[it].name.lowercase() } }
+
+    /** Items whose name contains every word of [query]. */
+    fun search(query: String, hidden: Set<String>, limit: Int): List<CatalogItem> {
+        val words = query.lowercase().split(' ').map { it.trim() }.filter { it.isNotEmpty() }
+        if (words.isEmpty()) return emptyList()
+        val names = searchNames
+        val out = ArrayList<CatalogItem>()
+        for (i in names.indices) {
+            val n = names[i]
+            if (words.all { n.contains(it) } && items[i].categoryId !in hidden) {
+                out.add(items[i])
+                if (out.size >= limit) break
+            }
+        }
+        return out
+    }
 }
 
 /**

@@ -26,8 +26,10 @@
                         <Button android:id="@+id/play" style="@style/Btn.Primary" android:text="▶  Play" />
                         <Button android:id="@+id/restart" style="@style/Btn" android:layout_marginStart="10dp"
                             android:text="Start over" android:visibility="gone" />
-                        <Button android:id="@+id/external" style="@style/Btn" android:layout_marginStart="10dp"
-                            android:drawableStart="@drawable/ic_external" android:drawablePadding="8dp" android:text="MX / VLC" />
+                        <ImageButton android:id="@+id/fav" style="@style/IconBtnBox" android:layout_marginStart="10dp"
+                            android:src="@drawable/ic_star_border" android:contentDescription="Favourite" />
+                        <ImageButton android:id="@+id/external" style="@style/IconBtnBox" android:layout_marginStart="10dp"
+                            android:src="@drawable/ic_external" android:contentDescription="Open in MX Player / VLC" />
                         <Button android:id="@+id/download" style="@style/Btn" android:layout_marginStart="10dp"
                             android:drawableStart="@drawable/ic_download" android:drawablePadding="8dp" android:text="Download" />
                     </LinearLayout>

@@ -19,23 +19,19 @@
             <TextView android:id="@+id/updated" android:layout_width="0dp" android:layout_height="wrap_content"
                 android:layout_weight="1" android:layout_marginStart="12dp" android:ellipsize="end" android:singleLine="true"
                 android:textColor="@color/text2" android:textSize="13sp" />
+            <TextView android:id="@+id/resultCount" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginEnd="12dp" android:textColor="@color/text2" android:textSize="13sp" />
             <ProgressBar android:id="@+id/refreshing" android:layout_width="28dp" android:layout_height="28dp"
                 android:layout_marginEnd="10dp" android:visibility="gone" />
             <Button android:id="@+id/refresh" style="@style/Btn" android:drawableStart="@drawable/ic_refresh"
                 android:drawablePadding="8dp" android:text="Refresh" />
         </LinearLayout>
 
-        <!-- Row 2: category picker (phones), search -->
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        <!-- Row 2 (phones only): category picker -->
+        <LinearLayout android:id="@+id/filterRow" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="6dp" android:gravity="center_vertical" android:orientation="horizontal">
-            <Button android:id="@+id/categoryButton" style="@style/Btn" android:layout_marginEnd="10dp"
-                android:maxWidth="180dp" android:ellipsize="end" android:singleLine="true" android:text="Categories" />
-            <EditText android:id="@+id/search" style="@style/Field" android:layout_width="0dp" android:layout_weight="1"
-                android:layout_marginTop="0dp" android:drawableStart="@drawable/ic_search" android:drawablePadding="10dp"
-                android:hint="Search" android:imeOptions="actionSearch|flagNoExtractUi" android:inputType="text"
-                android:paddingTop="10dp" android:paddingBottom="10dp" />
-            <TextView android:id="@+id/resultCount" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:layout_marginStart="12dp" android:textColor="@color/text2" android:textSize="13sp" />
+            <Button android:id="@+id/categoryButton" style="@style/Btn" android:layout_width="0dp" android:layout_weight="1"
+                android:ellipsize="end" android:singleLine="true" android:text="Categories" />
         </LinearLayout>
 
         <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"

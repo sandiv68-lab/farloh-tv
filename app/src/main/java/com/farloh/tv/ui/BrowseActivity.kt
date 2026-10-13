@@ -2,12 +2,9 @@ package com.farloh.tv.ui
 
 import android.content.Intent
 import android.os.Bundle
-import android.text.Editable
-import android.text.TextWatcher
 import android.view.KeyEvent
 import android.view.View
 import android.widget.Button
-import android.widget.EditText
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -55,7 +52,6 @@ class BrowseActivity : BaseActivity() {
     private lateinit var refreshButton: Button
     private lateinit var refreshing: ProgressBar
     private lateinit var categoryButton: Button
-    private lateinit var search: EditText
     private lateinit var resultCount: TextView
     private lateinit var categoriesRv: RecyclerView
     private lateinit var itemsRv: RecyclerView
@@ -69,7 +65,6 @@ class BrowseActivity : BaseActivity() {
     private var data: SectionData? = null
     private var catRows: List<CatRow> = emptyList()
     private var currentCat = ALL
-    private var query = ""
     private var wide = false
     private var favs: Set<String> = emptySet()
     private var hidden: Set<String> = emptySet()
@@ -79,7 +74,6 @@ class BrowseActivity : BaseActivity() {
 
     private var epgJob: Job? = null
     private var catJob: Job? = null
-    private var searchJob: Job? = null
 
     private val catAdapter = SimpleAdapter<CatRow>(R.layout.row_category, 1.02f) { v, row, _ ->
         v.findViewById<TextView>(R.id.name).text = row.name
@@ -97,14 +91,15 @@ class BrowseActivity : BaseActivity() {
         account = requireAccount() ?: return
         setContentView(R.layout.activity_browse)
         wide = wideLayout
-        favs = store.favorites()
+        favs = store.favorites(section)
 
         updated = findViewById(R.id.updated)
         refreshButton = findViewById(R.id.refresh)
         refreshing = findViewById(R.id.refreshing)
         categoryButton = findViewById(R.id.categoryButton)
-        search = findViewById(R.id.search)
         resultCount = findViewById(R.id.resultCount)
+        // Search now lives on the home screen (searches all sections at once).
+        findViewById<View>(R.id.filterRow).visibility = if (wide) View.GONE else View.VISIBLE
         categoriesRv = findViewById(R.id.categories)
         itemsRv = findViewById(R.id.items)
         empty = findViewById(R.id.empty)
@@ -132,7 +127,6 @@ class BrowseActivity : BaseActivity() {
             catJob?.cancel()
             catJob = lifecycleScope.launch { delay(350); selectCategory(row.id) }
         }
-        if (!wide) resultCount.visibility = View.GONE
 
         setupItems()
 
@@ -141,19 +135,6 @@ class BrowseActivity : BaseActivity() {
         epgRv.adapter = epgAdapter
         epgChannel.text = "Select a channel"
 
-        search.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-            override fun afterTextChanged(s: Editable?) {
-                searchJob?.cancel()
-                searchJob = lifecycleScope.launch {
-                    delay(300)
-                    query = s?.toString().orEmpty().trim()
-                    applyFilter()
-                }
-            }
-        })
-
         load()
     }
 
@@ -161,14 +142,14 @@ class BrowseActivity : BaseActivity() {
         super.onResume()
         // Re-draw only if favourites, history or parental settings changed while away.
         if (data != null && signature() != stateSignature) {
-            favs = store.favorites()
+            favs = store.favorites(section)
             render(keepScroll = true)
         }
         updated.text = Fmt.ago(Catalog.lastUpdated(this, section))
     }
 
     private fun signature(): String = listOf(
-        store.favorites().hashCode(),
+        store.favorites(section).hashCode(),
         if (section == Section.LIVE) store.history().hashCode() else 0,
         store.hiddenCategories(section).hashCode(),
         store.recentLimit, store.historyLimit,
@@ -261,8 +242,8 @@ class BrowseActivity : BaseActivity() {
         val counts = d.byCategory
         val rows = ArrayList<CatRow>()
         rows.add(CatRow(ALL, "All", visible.size))
+        rows.add(CatRow(FAV, "★  Favourites", visible.count { it.id in favs }))
         if (section == Section.LIVE) {
-            rows.add(CatRow(FAV, "★  Favourites", visible.count { it.id in favs }))
             if (store.historyLimit > 0) rows.add(CatRow(RECENT, "Recently watched", recent.size))
         } else if (store.recentLimit > 0) {
             rows.add(CatRow(RECENT, "Recently added", recent.size))
@@ -281,7 +262,6 @@ class BrowseActivity : BaseActivity() {
     private fun applyFilter(keepScroll: Boolean = false) {
         val d = data ?: return
         val list: List<CatalogItem> = when {
-            query.isNotEmpty() -> visible.filter { it.name.contains(query, ignoreCase = true) }
             currentCat == ALL -> visible
             currentCat == FAV -> visible.filter { it.id in favs }
             currentCat == RECENT -> recent
@@ -298,8 +278,7 @@ class BrowseActivity : BaseActivity() {
         }
         if (list.isEmpty()) {
             empty.text = when {
-                query.isNotEmpty() -> "Nothing matches \"$query\"."
-                currentCat == FAV -> "No favourites yet.\nHold OK (or long-press) on a channel to add it."
+                currentCat == FAV -> "No favourites yet.\nHold OK (or long-press) on an item and choose Add to Favourites."
                 currentCat == RECENT && section == Section.LIVE -> "Channels you watch will appear here."
                 currentCat == RECENT -> "Nothing recently added."
                 d.items.isEmpty() -> "The server returned an empty list.\nPress Refresh to try again."
@@ -314,18 +293,12 @@ class BrowseActivity : BaseActivity() {
     private fun currentCatName() = catRows.firstOrNull { it.id == currentCat }?.name ?: "All"
 
     private fun selectCategory(id: String) {
-        if (id == currentCat && query.isEmpty()) return
+        if (id == currentCat) return
         val oldIndex = catRows.indexOfFirst { it.id == currentCat }
         currentCat = id
         val newIndex = catRows.indexOfFirst { it.id == id }
         if (oldIndex >= 0) catAdapter.notifyItemChanged(oldIndex)
         if (newIndex >= 0) catAdapter.notifyItemChanged(newIndex)
-        if (query.isNotEmpty()) {
-            query = ""
-            searchJob?.cancel()
-            search.setText("")
-            searchJob?.cancel()
-        }
         applyFilter()
     }
 
@@ -364,7 +337,7 @@ class BrowseActivity : BaseActivity() {
     private fun playChannel(position: Int, external: Boolean?) {
         val channels = itemAdapter.items.filterIsInstance<LiveChannel>()
         if (channels.isEmpty()) return
-        val label = if (query.isNotEmpty()) "Search: $query" else currentCatName()
+        val label = currentCatName()
         Launcher.play(this, channels.map { livePlayable(it) }, position, external = external, categoryName = label)
     }
 
@@ -383,8 +356,8 @@ class BrowseActivity : BaseActivity() {
                     0 -> playChannel(position, external = false)
                     1 -> playChannel(position, external = true)
                     2 -> {
-                        val added = store.toggleFavorite(ch.id)
-                        favs = store.favorites()
+                        val added = store.toggleFavorite(ch.id, section)
+                        favs = store.favorites(section)
                         toast(if (added) "Added to Favourites" else "Removed from Favourites")
                         render(keepScroll = true)
                     }
@@ -463,39 +436,13 @@ class BrowseActivity : BaseActivity() {
         } else {
             badge.visibility = View.GONE
         }
+        v.findViewById<View>(R.id.fav).visibility = if (item.id in favs) View.VISIBLE else View.GONE
     }
 
-    private fun openDetails(item: CatalogItem) {
-        when (item) {
-            is Movie -> startActivity(
-                Intent(this, MovieDetailActivity::class.java)
-                    .putExtra(MovieDetailActivity.EXTRA_ID, item.id)
-                    .putExtra(MovieDetailActivity.EXTRA_NAME, item.name)
-                    .putExtra(MovieDetailActivity.EXTRA_IMAGE, item.image)
-                    .putExtra(MovieDetailActivity.EXTRA_EXT, item.ext)
-            )
-            is Show -> startActivity(
-                Intent(this, SeriesDetailActivity::class.java)
-                    .putExtra(SeriesDetailActivity.EXTRA_ID, item.id)
-                    .putExtra(SeriesDetailActivity.EXTRA_NAME, item.name)
-                    .putExtra(SeriesDetailActivity.EXTRA_IMAGE, item.image)
-            )
-        }
-    }
+    private fun openDetails(item: CatalogItem) = openItemDetails(this, item)
 
     private fun posterOptions(item: CatalogItem) {
-        if (item !is Movie) { openDetails(item); return }
-        val p = Playable(Kind.MOVIE, item.id, item.name, account.movieUrl(item.id, item.ext), item.image)
-        AlertDialog.Builder(this)
-            .setTitle(item.name)
-            .setItems(arrayOf("Play", "Play in MX Player / VLC", "Details")) { _, which ->
-                when (which) {
-                    0 -> Launcher.play(this, listOf(p), 0, external = false)
-                    1 -> Launcher.play(this, listOf(p), 0, external = true)
-                    2 -> openDetails(item)
-                }
-            }
-            .show()
+        ItemOptions.show(this, section, item, account) { favs = store.favorites(section); render(keepScroll = true) }
     }
 
     // ---------------- Remote: MENU key opens options for the focused item ----------------

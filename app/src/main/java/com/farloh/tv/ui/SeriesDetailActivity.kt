@@ -55,6 +55,12 @@ class SeriesDetailActivity : BaseActivity() {
         setContentView(R.layout.activity_series)
 
         findViewById<View>(R.id.back).setOnClickListener { finish() }
+        findViewById<ImageView>(R.id.fav).setOnClickListener {
+            val added = store.toggleFavorite(seriesId, com.farloh.tv.data.Section.SERIES)
+            toast(if (added) "Added to Favourites" else "Removed from Favourites")
+            updateFav()
+        }
+        updateFav()
         findViewById<TextView>(R.id.title).text = showName
         findViewById<ImageView>(R.id.poster).loadImage(cover)
         if (screenWidthDp < 600) {
@@ -155,6 +161,14 @@ class SeriesDetailActivity : BaseActivity() {
         seasonAdapter.notifyItemChanged(seasons.indexOf(season))
         episodeAdapter.submit(info?.episodes?.get(season).orEmpty())
         findViewById<RecyclerView>(R.id.episodes).scrollToPosition(0)
+    }
+
+    private fun updateFav() {
+        val fav = store.isFavorite(com.farloh.tv.data.Section.SERIES, seriesId)
+        findViewById<ImageView>(R.id.fav).apply {
+            setImageResource(if (fav) R.drawable.ic_star else R.drawable.ic_star_border)
+            setColorFilter(androidx.core.content.ContextCompat.getColor(this@SeriesDetailActivity, if (fav) R.color.accent else R.color.text))
+        }
     }
 
     private fun seasonLabel(season: Int) = if (season == 0) "Specials" else "Season $season"

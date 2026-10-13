@@ -49,6 +49,8 @@
         <activity android:name=".ui.HomeActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
         <activity android:name=".ui.SettingsActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
         <activity android:name=".ui.DownloadsActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
+        <activity android:name=".ui.SearchActivity" android:exported="false" android:screenOrientation="sensorLandscape"
+            android:windowSoftInputMode="adjustResize|stateVisible" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

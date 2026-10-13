@@ -62,7 +62,13 @@ class MovieDetailActivity : BaseActivity() {
         download.setOnClickListener { onDownload() }
         play.setOnClickListener { Launcher.play(this, listOf(bestPlayable()), 0, resume = true) }
         restart.setOnClickListener { Launcher.play(this, listOf(bestPlayable()), 0, external = false, resume = false) }
-        findViewById<View>(R.id.external).setOnClickListener { Launcher.play(this, listOf(playable()), 0, external = true) }
+        findViewById<View>(R.id.external).setOnClickListener { Launcher.play(this, listOf(bestPlayable()), 0, external = true) }
+        findViewById<ImageView>(R.id.fav).setOnClickListener {
+            val added = store.toggleFavorite(id, com.farloh.tv.data.Section.MOVIES)
+            toast(if (added) "Added to Favourites" else "Removed from Favourites")
+            updateFav()
+        }
+        updateFav()
         play.requestFocus()
 
         lifecycleScope.launch {
@@ -113,6 +119,14 @@ class MovieDetailActivity : BaseActivity() {
         val err = Downloads.start(this, playable())
         toast(err ?: "Downloading “$name”. See progress in Downloads.", long = err != null)
         updateDownloadButton()
+    }
+
+    private fun updateFav() {
+        val fav = store.isFavorite(com.farloh.tv.data.Section.MOVIES, id)
+        findViewById<ImageView>(R.id.fav).apply {
+            setImageResource(if (fav) R.drawable.ic_star else R.drawable.ic_star_border)
+            setColorFilter(androidx.core.content.ContextCompat.getColor(this@MovieDetailActivity, if (fav) R.color.accent else R.color.text))
+        }
     }
 
     private fun updateDownloadButton() {

@@ -103,7 +103,7 @@ class PlayerActivity : BaseActivity() {
     private lateinit var nextTitle: TextView
     private lateinit var clock: TextView
     private lateinit var btnChannels: Button
-    private lateinit var btnFav: Button
+    private lateinit var btnFav: ImageView
     private lateinit var channelPanel: View
     private lateinit var panelTitle: TextView
     private lateinit var channelList: RecyclerView
@@ -196,10 +196,6 @@ class PlayerActivity : BaseActivity() {
         })
         findViewById<View>(R.id.vodExternal).setOnClickListener { openExternal() }
         findViewById<View>(R.id.vodSubs).setOnClickListener { subtitleMenu() }
-        findViewById<View>(R.id.vodPip).apply {
-            visibility = if (pipSupported() && store.pipEnabled) View.VISIBLE else View.GONE
-            setOnClickListener { enterPip() }
-        }
 
         if (isLive) {
             playerView.useController = false
@@ -213,16 +209,9 @@ class PlayerActivity : BaseActivity() {
             channelList.adapter = channelAdapter
             channelAdapter.onClick = { _, pos -> hidePanel(); switchTo(pos) }
             btnChannels.setOnClickListener { showPanel() }
-            findViewById<View>(R.id.btnPrev).setOnClickListener { switchTo(index - 1) }
-            findViewById<View>(R.id.btnNext).setOnClickListener { switchTo(index + 1) }
-            findViewById<View>(R.id.btnAudio).setOnClickListener { trackDialog(C.TRACK_TYPE_AUDIO, "Audio") }
             findViewById<View>(R.id.btnSubs).setOnClickListener { trackDialog(C.TRACK_TYPE_TEXT, "Subtitles") }
             findViewById<View>(R.id.btnExternal).setOnClickListener { openExternal() }
             btnFav.setOnClickListener { toggleFavorite() }
-            findViewById<View>(R.id.btnPip).apply {
-                visibility = if (pipSupported() && store.pipEnabled) View.VISIBLE else View.GONE
-                setOnClickListener { enterPip() }
-            }
         } else {
             playerView.useController = true
             tapLayer.visibility = View.GONE
@@ -688,7 +677,9 @@ class PlayerActivity : BaseActivity() {
         val p = current
         chName.text = listOfNotNull(p.num?.takeIf { it.isNotBlank() }, p.title).joinToString("   ")
         chLogo.loadImage(p.logo)
-        btnFav.text = if (p.id in favs) "★  Favourite" else "☆  Favourite"
+        val fav = p.id in favs
+        btnFav.setImageResource(if (fav) R.drawable.ic_star else R.drawable.ic_star_border)
+        btnFav.setColorFilter(androidx.core.content.ContextCompat.getColor(this, if (fav) R.color.accent else R.color.text))
         clock.text = Fmt.time(this, System.currentTimeMillis())
         renderNowNext()
     }
@@ -801,7 +792,7 @@ class PlayerActivity : BaseActivity() {
         }
         if (pipSupported() && store.pipEnabled) opts += "Picture-in-picture" to { enterPip(); Unit }
         AlertDialog.Builder(this)
-            .setTitle("Video")
+            .setTitle("Options")
             .setItems(opts.map { it.first }.toTypedArray()) { _, which -> opts[which].second() }
             .setNegativeButton("Close", null)
             .show()

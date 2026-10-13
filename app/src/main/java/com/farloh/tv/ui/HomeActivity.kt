@@ -73,6 +73,7 @@ class HomeActivity : BaseActivity() {
         playlistButton.setOnClickListener { showPlaylists() }
         findViewById<View>(R.id.settings).setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
         findViewById<View>(R.id.downloads).setOnClickListener { openDownloads() }
+        findViewById<View>(R.id.search).setOnClickListener { startActivity(Intent(this, SearchActivity::class.java)) }
         tiles.getValue(Section.LIVE).card.requestFocus()
 
         if (!store.initialLoadDone) firstLoad()

@@ -16,7 +16,9 @@
             <TextView android:id="@+id/account" android:layout_width="0dp" android:layout_height="wrap_content"
                 android:layout_weight="1" android:layout_marginStart="12dp" android:ellipsize="end" android:gravity="end"
                 android:maxLines="2" android:textColor="@color/text2" android:textSize="13sp" />
-            <Button android:id="@+id/playlist" style="@style/Btn" android:layout_marginStart="12dp"
+            <ImageButton android:id="@+id/search" style="@style/IconBtn" android:layout_marginStart="12dp"
+                android:src="@drawable/ic_search" android:contentDescription="Search" />
+            <Button android:id="@+id/playlist" style="@style/Btn" android:layout_marginStart="8dp"
                 android:drawableStart="@drawable/ic_playlist" android:drawablePadding="8dp" android:ellipsize="end"
                 android:maxWidth="220dp" android:singleLine="true" android:text="Playlist" />
             <ImageButton android:id="@+id/downloads" style="@style/IconBtn" android:layout_marginStart="8dp"
