@@ -64,9 +64,8 @@ object ItemOptions {
                 opts += "Play" to { Launcher.play(activity, listOf(p), 0, external = false) }
                 opts += "Open in external player (MX / VLC)" to { Launcher.play(activity, listOf(p), 0, external = true) }
                 opts += "Details" to { openItemDetails(activity, item) }
-                if (Downloads.find(activity, p.resumeKey) == null) opts += "Download" to {
-                    val err = Downloads.start(activity, p)
-                    Toast.makeText(activity, err ?: "Downloading “${item.name}”", Toast.LENGTH_LONG).show()
+                if (activity is BaseActivity && Downloads.find(activity, p.resumeKey) == null) opts += "Download" to {
+                    DownloadPrompt.start(activity, listOf(p), item.name)
                 }
             }
             is Show -> opts += "Open" to { openItemDetails(activity, item) }

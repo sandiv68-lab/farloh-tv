@@ -116,9 +116,7 @@ class MovieDetailActivity : BaseActivity() {
             startActivity(android.content.Intent(this, DownloadsActivity::class.java))
             return
         }
-        val err = Downloads.start(this, playable())
-        toast(err ?: "Downloading “$name”. See progress in Downloads.", long = err != null)
-        updateDownloadButton()
+        DownloadPrompt.start(this, listOf(playable()), name) { updateDownloadButton() }
     }
 
     private fun updateFav() {

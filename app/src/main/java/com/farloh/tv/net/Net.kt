@@ -88,6 +88,47 @@ object Net {
         }
     }
 
+    /**
+     * Size of a remote file in bytes without downloading it, or null if the server won't say.
+     * Tries a HEAD request first, then a 1-byte ranged GET (many IPTV servers ignore HEAD).
+     */
+    fun contentLength(url: String): Long? {
+        for (useHead in listOf(true, false)) {
+            var current = URL(url)
+            var redirects = 0
+            while (redirects <= 5) {
+                val conn = current.openConnection() as HttpURLConnection
+                try {
+                    conn.instanceFollowRedirects = false
+                    conn.connectTimeout = 10_000
+                    conn.readTimeout = 10_000
+                    conn.setRequestProperty("User-Agent", USER_AGENT)
+                    if (useHead) conn.requestMethod = "HEAD" else conn.setRequestProperty("Range", "bytes=0-0")
+                    val code = conn.responseCode
+                    if (code in 300..399) {
+                        val loc = conn.getHeaderField("Location") ?: break
+                        current = URL(current, loc)
+                        redirects++
+                        continue
+                    }
+                    if (code == 206) {
+                        // Content-Range: bytes 0-0/123456789
+                        conn.getHeaderField("Content-Range")?.substringAfterLast('/')?.trim()?.toLongOrNull()
+                            ?.takeIf { it > 0 }?.let { return it }
+                    } else if (code in 200..299) {
+                        conn.getHeaderField("Content-Length")?.trim()?.toLongOrNull()?.takeIf { it > 0 }?.let { return it }
+                    }
+                    break
+                } catch (e: Exception) {
+                    break
+                } finally {
+                    conn.disconnect()
+                }
+            }
+        }
+        return null
+    }
+
     fun getString(url: String): String {
         val conn = open(url, 30_000)
         try {

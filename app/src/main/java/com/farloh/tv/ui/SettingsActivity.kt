@@ -365,8 +365,12 @@ class SettingsActivity : BaseActivity() {
             val hidden = store.hiddenCategories(section).toMutableSet()
             val names = data.categories.map { it.name }.toTypedArray()
             val checked = data.categories.map { it.id in hidden }.toBooleanArray()
-            AlertDialog.Builder(this@SettingsActivity)
-                .setTitle("Hide groups in ${section.title}")
+
+            // Title bar with "Select all" / "Deselect all" so long group lists are quick to set.
+            val header = layoutInflater.inflate(R.layout.dialog_hide_groups_title, null)
+            header.findViewById<TextView>(R.id.title).text = "Hide groups in ${section.title}"
+            val dialog = AlertDialog.Builder(this@SettingsActivity)
+                .setCustomTitle(header)
                 .setMultiChoiceItems(names, checked) { _, which, isChecked -> checked[which] = isChecked }
                 .setPositiveButton("Save") { _, _ ->
                     val ids = data.categories.filterIndexed { i, _ -> checked[i] }.map { it.id }.toSet()
@@ -374,11 +378,15 @@ class SettingsActivity : BaseActivity() {
                     toast(if (ids.isEmpty()) "All groups visible" else "${ids.size} group(s) hidden")
                     refresh()
                 }
-                .setNeutralButton("Show all") { _, _ ->
-                    store.setHiddenCategories(section, emptySet()); refresh()
-                }
                 .setNegativeButton("Cancel", null)
-                .show()
+                .create()
+            fun setAll(value: Boolean) {
+                checked.fill(value)
+                dialog.listView?.let { lv -> for (i in checked.indices) lv.setItemChecked(i, value) }
+            }
+            header.findViewById<View>(R.id.selectAll).setOnClickListener { setAll(true) }
+            header.findViewById<View>(R.id.deselectAll).setOnClickListener { setAll(false) }
+            dialog.show()
         }
     }
 

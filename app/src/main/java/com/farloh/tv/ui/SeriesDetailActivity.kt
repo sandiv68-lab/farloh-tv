@@ -180,19 +180,8 @@ class SeriesDetailActivity : BaseActivity() {
     )
 
     private fun downloadEpisodes(eps: List<Episode>) {
-        var started = 0
-        var lastError: String? = null
-        for (ep in eps) {
-            if (Downloads.find(this, "${Kind.EPISODE.name}_${ep.id}") != null) continue
-            val err = Downloads.start(this, remotePlayable(ep))
-            if (err == null) started++ else lastError = err
-        }
-        toast(when {
-            started > 0 -> "Downloading $started episode(s). See progress in Downloads."
-            lastError != null -> lastError!!
-            else -> "Already downloaded."
-        }, long = true)
-        episodeAdapter.notifyDataSetChanged()
+        val title = if (eps.size == 1) "$showName ${episodeTitle(eps[0])}" else "$showName – ${seasonLabel(currentSeason)}"
+        DownloadPrompt.start(this, eps.map { remotePlayable(it) }, title) { episodeAdapter.notifyDataSetChanged() }
     }
 
     private fun episodeTitle(ep: Episode): String {
