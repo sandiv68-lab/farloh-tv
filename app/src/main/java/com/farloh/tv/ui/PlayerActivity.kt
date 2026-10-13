@@ -4,6 +4,7 @@ import android.app.PictureInPictureParams
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
@@ -17,6 +18,7 @@ import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.annotation.OptIn
+import androidx.appcompat.app.AlertDialog
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -44,6 +46,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.farloh.tv.R
 import com.farloh.tv.data.Account
+import com.farloh.tv.data.OpenSubtitles
 import com.farloh.tv.data.Programme
 import com.farloh.tv.data.Xtream
 import com.farloh.tv.net.Net
@@ -53,6 +56,7 @@ import com.farloh.tv.player.PlayQueue
 import com.farloh.tv.player.Playable
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import java.io.File
 
 /**
  * Built-in player (AndroidX Media3 / ExoPlayer, open source).
@@ -158,6 +162,7 @@ class PlayerActivity : BaseActivity() {
             vodTop.visibility = if (!isLive && visibility == View.VISIBLE) View.VISIBLE else View.GONE
         })
         findViewById<View>(R.id.vodExternal).setOnClickListener { openExternal() }
+        findViewById<View>(R.id.vodSubs).setOnClickListener { subtitleMenu() }
         findViewById<View>(R.id.vodPip).apply {
             visibility = if (pipSupported() && store.pipEnabled) View.VISIBLE else View.GONE
             setOnClickListener { enterPip() }
@@ -354,7 +359,110 @@ class PlayerActivity : BaseActivity() {
     private fun mediaItem(p: Playable): MediaItem {
         val b = MediaItem.Builder().setUri(p.url).setMediaId(p.id)
         if (p.url.contains(".m3u8", ignoreCase = true)) b.setMimeType(MimeTypes.APPLICATION_M3U8)
+        // Subtitle previously downloaded from OpenSubtitles for this movie/episode.
+        val sub = subFile(p)
+        if (p.kind != Kind.LIVE && sub.exists() && sub.length() > 0) {
+            b.setSubtitleConfigurations(listOf(
+                MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(sub))
+                    .setMimeType(MimeTypes.APPLICATION_SUBRIP)
+                    .setLabel("Downloaded (OpenSubtitles)")
+                    .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                    .build()
+            ))
+        }
         return b.build()
+    }
+
+    // ---------------- Subtitles ----------------
+
+    private fun subFile(p: Playable) = File(filesDir, "subs/${p.resumeKey}.srt")
+
+    private fun subtitleMenu() {
+        val p = current
+        val opts = ArrayList<Pair<String, () -> Unit>>()
+        opts += "Choose subtitle track" to { trackDialog(C.TRACK_TYPE_TEXT, "Subtitles") }
+        opts += "Search online (OpenSubtitles)" to { searchSubtitles() }
+        if (subFile(p).exists()) opts += "Remove downloaded subtitle" to {
+            subFile(p).delete(); reloadKeepingPosition(); toast("Subtitle removed")
+        }
+        opts += "Subtitles off" to { setSubtitlesEnabled(false); toast("Subtitles off") }
+        AlertDialog.Builder(this)
+            .setTitle("Subtitles")
+            .setItems(opts.map { it.first }.toTypedArray()) { _, which -> opts[which].second() }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun searchSubtitles() {
+        val p = current
+        if (store.subsApiKey.isBlank()) {
+            AlertDialog.Builder(this)
+                .setTitle("Online subtitles")
+                .setMessage("To search subtitles online, add your free OpenSubtitles API key in Settings → Online subtitles.")
+                .setPositiveButton("Open Settings") { _, _ -> startActivity(Intent(this, SettingsActivity::class.java)) }
+                .setNegativeButton("Close", null)
+                .show()
+            return
+        }
+        val q = OpenSubtitles.Query(
+            title = p.searchTitle ?: p.title, year = p.year, tmdbId = p.tmdbId, season = p.season, episode = p.episode,
+        )
+        showStatus("Searching subtitles…")
+        lifecycleScope.launch {
+            try {
+                val results = OpenSubtitles.search(store, q).take(40)
+                hideStatus()
+                if (results.isEmpty()) {
+                    toast("No subtitles found in: ${OpenSubtitles.languages(store)}", long = true)
+                    return@launch
+                }
+                val labels = results.map {
+                    "${it.language.uppercase()}  •  ${it.release.take(70)}  •  ${it.downloads} downloads" +
+                        if (it.hearingImpaired) "  (HI)" else ""
+                }
+                AlertDialog.Builder(this@PlayerActivity)
+                    .setTitle(if (q.isEpisode) "${q.title} S${q.season} E${q.episode}" else q.title)
+                    .setItems(labels.toTypedArray()) { _, which -> downloadSubtitle(p, results[which]) }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            } catch (e: Exception) {
+                hideStatus()
+                toast(e.message ?: "Subtitle search failed", long = true)
+            }
+        }
+    }
+
+    private fun downloadSubtitle(p: Playable, r: OpenSubtitles.Result) {
+        showStatus("Downloading subtitle…")
+        lifecycleScope.launch {
+            try {
+                val d = OpenSubtitles.download(store, r.fileId, subFile(p))
+                hideStatus()
+                if (current.resumeKey == p.resumeKey) {
+                    setSubtitlesEnabled(true)
+                    reloadKeepingPosition()
+                }
+                toast("Subtitle added" + (d.remaining?.let { " • $it downloads left today" } ?: ""))
+            } catch (e: Exception) {
+                hideStatus()
+                toast(e.message ?: "Subtitle download failed", long = true)
+            }
+        }
+    }
+
+    private fun setSubtitlesEnabled(enabled: Boolean) {
+        val exo = player ?: return
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !enabled).build()
+    }
+
+    private fun reloadKeepingPosition() {
+        val exo = player ?: return
+        val pos = exo.currentPosition
+        val playing = exo.playWhenReady
+        exo.setMediaItem(mediaItem(current), pos)
+        exo.prepare()
+        exo.playWhenReady = playing
     }
 
     private fun playCurrent(resume: Boolean) {
@@ -459,7 +567,7 @@ class PlayerActivity : BaseActivity() {
     private fun trackDialog(type: Int, title: String) {
         val exo = player ?: return
         if (exo.currentTracks.groups.none { it.type == type }) {
-            toast("No ${title.lowercase()} options on this channel")
+            toast("No ${title.lowercase()} options for this ${if (isLive) "channel" else "video"}")
             return
         }
         TrackSelectionDialogBuilder(this, title, exo, type)

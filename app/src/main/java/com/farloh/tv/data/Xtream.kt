@@ -113,6 +113,7 @@ object Xtream {
             poster = info.str("movie_image", "cover_big").ifBlank { null },
             backdrop = backdrop(info),
             ext = data.str("container_extension").ifBlank { null },
+            tmdbId = info.str("tmdb_id", "tmdb").takeIf { it.any(Char::isDigit) && it != "0" },
         )
     }
 
@@ -160,6 +161,7 @@ object Xtream {
             cover = info.str("cover", "cover_big").ifBlank { null },
             backdrop = backdrop(info),
             episodes = episodes.sortedWith(compareBy({ it.season }, { it.num })).groupBy { it.season }.toSortedMap(),
+            tmdbId = info.str("tmdb_id", "tmdb").takeIf { it.any(Char::isDigit) && it != "0" },
         )
     }
 

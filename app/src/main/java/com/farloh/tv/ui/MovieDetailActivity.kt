@@ -8,6 +8,8 @@ import android.widget.TextView
 import androidx.lifecycle.lifecycleScope
 import com.farloh.tv.R
 import com.farloh.tv.data.Account
+import com.farloh.tv.data.DownloadState
+import com.farloh.tv.data.Downloads
 import com.farloh.tv.data.MovieInfo
 import com.farloh.tv.data.Xtream
 import com.farloh.tv.player.Kind
@@ -32,6 +34,8 @@ class MovieDetailActivity : BaseActivity() {
 
     private lateinit var play: Button
     private lateinit var restart: Button
+    private lateinit var download: Button
+    private var info: MovieInfo? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,8 +58,10 @@ class MovieDetailActivity : BaseActivity() {
 
         play = findViewById(R.id.play)
         restart = findViewById(R.id.restart)
-        play.setOnClickListener { Launcher.play(this, listOf(playable()), 0, resume = true) }
-        restart.setOnClickListener { Launcher.play(this, listOf(playable()), 0, external = false, resume = false) }
+        download = findViewById(R.id.download)
+        download.setOnClickListener { onDownload() }
+        play.setOnClickListener { Launcher.play(this, listOf(bestPlayable()), 0, resume = true) }
+        restart.setOnClickListener { Launcher.play(this, listOf(bestPlayable()), 0, external = false, resume = false) }
         findViewById<View>(R.id.external).setOnClickListener { Launcher.play(this, listOf(playable()), 0, external = true) }
         play.requestFocus()
 
@@ -74,6 +80,7 @@ class MovieDetailActivity : BaseActivity() {
         super.onResume()
         if (!::play.isInitialized) return
         val pos = store.resumePosition("${Kind.MOVIE.name}_$id")
+        updateDownloadButton()
         if (pos > 0) {
             play.text = "▶  Resume from ${Fmt.duration(pos)}"
             restart.visibility = View.VISIBLE
@@ -83,9 +90,45 @@ class MovieDetailActivity : BaseActivity() {
         }
     }
 
-    private fun playable() = Playable(Kind.MOVIE, id, name, account.movieUrl(id, ext), image)
+    private fun playable() = Playable(
+        Kind.MOVIE, id, name, account.movieUrl(id, ext), image,
+        searchTitle = name, tmdbId = info?.tmdbId, year = info?.year, ext = ext,
+    )
+
+    /** The downloaded copy if there is one, otherwise the stream. */
+    private fun bestPlayable(): Playable {
+        val entry = Downloads.find(this, "${Kind.MOVIE.name}_$id")
+        if (entry != null && Downloads.status(this, listOf(entry))[entry.key]?.state == DownloadState.DONE) {
+            Downloads.playable(this, entry)?.let { return it.copy(tmdbId = it.tmdbId ?: info?.tmdbId) }
+        }
+        return playable()
+    }
+
+    private fun onDownload() {
+        val entry = Downloads.find(this, "${Kind.MOVIE.name}_$id")
+        if (entry != null) {
+            startActivity(android.content.Intent(this, DownloadsActivity::class.java))
+            return
+        }
+        val err = Downloads.start(this, playable())
+        toast(err ?: "Downloading “$name”. See progress in Downloads.", long = err != null)
+        updateDownloadButton()
+    }
+
+    private fun updateDownloadButton() {
+        val entry = Downloads.find(this, "${Kind.MOVIE.name}_$id")
+        download.text = if (entry == null) "Download" else {
+            val st = Downloads.status(this, listOf(entry))[entry.key]
+            when (st?.state) {
+                DownloadState.DONE -> "✓ Downloaded"
+                DownloadState.FAILED, DownloadState.MISSING -> "Download failed"
+                else -> "Downloading…"
+            }
+        }
+    }
 
     private fun show(info: MovieInfo) {
+        this.info = info
         if (info.title.isNotBlank() && name.isBlank()) {
             name = info.title
             findViewById<TextView>(R.id.title).text = name

@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.farloh.tv.BuildConfig
 import com.farloh.tv.R
 import com.farloh.tv.data.Catalog
+import com.farloh.tv.data.OpenSubtitles
 import com.farloh.tv.data.Section
 import com.farloh.tv.data.Xtream
 import com.farloh.tv.net.Net
@@ -135,6 +136,62 @@ class SettingsActivity : BaseActivity() {
             }
         }
 
+        r += Row.Header("Online subtitles (OpenSubtitles.com)")
+        r += Row.Item("Subtitle server", when (store.subsServer) {
+            "vip" -> "VIP API server"; "custom" -> "Custom"; else -> "Default server"
+        }, when (store.subsServer) {
+            "vip" -> "vip-api.opensubtitles.com – for OpenSubtitles VIP members"
+            "custom" -> store.subsCustomUrl.ifBlank { "No address set" }
+            else -> "api.opensubtitles.com"
+        }) {
+            Dialogs.choose(this, "Subtitle server",
+                listOf("Default server (api.opensubtitles.com)", "VIP API server (vip-api.opensubtitles.com)", "Custom server address…"),
+                listOf("default", "vip", "custom"), store.subsServer) { choice ->
+                if (choice == "custom") {
+                    Dialogs.input(this, "Server address", store.subsCustomUrl, "https://api.example.com/api/v1") {
+                        store.subsCustomUrl = it.trim(); store.subsServer = "custom"; OpenSubtitles.forgetLogin(); refresh()
+                    }
+                } else {
+                    store.subsServer = choice; OpenSubtitles.forgetLogin(); refresh()
+                }
+            }
+        }
+        r += Row.Item("API key", if (store.subsApiKey.isBlank()) "Not set" else "••••" + store.subsApiKey.takeLast(4),
+            "Required. Free from opensubtitles.com → API consumers") {
+            Dialogs.input(this, "OpenSubtitles API key", store.subsApiKey) {
+                store.subsApiKey = it.trim(); OpenSubtitles.forgetLogin(); refresh()
+            }
+        }
+        r += Row.Item("Account username", store.subsUsername.ifBlank { "Not signed in (optional)" },
+            "Signing in gives more downloads per day; VIP accounts get the most") {
+            Dialogs.input(this, "OpenSubtitles username", store.subsUsername) {
+                store.subsUsername = it.trim(); OpenSubtitles.forgetLogin(); refresh()
+            }
+        }
+        r += Row.Item("Account password", if (store.subsPassword.isEmpty()) "Not set" else "••••••") {
+            Dialogs.input(this, "OpenSubtitles password", password = true) {
+                store.subsPassword = it; OpenSubtitles.forgetLogin(); refresh()
+            }
+        }
+        r += Row.Item("Search languages", OpenSubtitles.languages(store).uppercase(),
+            "Codes separated by commas, e.g. en,ms,zh") {
+            Dialogs.input(this, "Languages (e.g. en,ms,zh)", store.subsLanguages.ifBlank { OpenSubtitles.languages(store) }) {
+                store.subsLanguages = it.trim().lowercase(); refresh()
+            }
+        }
+        r += Row.Item("Test connection", "") { testSubtitles() }
+        r += Row.Item("How to get an API key", "") {
+            AlertDialog.Builder(this)
+                .setTitle("OpenSubtitles API key")
+                .setMessage("1. On a phone or computer, create a free account at opensubtitles.com.\n\n" +
+                    "2. Open opensubtitles.com/consumers and press \"New consumer\". Any name works, e.g. Farloh TV.\n\n" +
+                    "3. Copy the API key it shows and paste it here under \"API key\".\n\n" +
+                    "Optional: enter your OpenSubtitles username and password for more downloads per day. " +
+                    "VIP members can choose the VIP API server.")
+                .setPositiveButton("OK", null)
+                .show()
+        }
+
         r += Row.Header("Parental control")
         for (s in Section.values()) {
             val n = store.hiddenCategories(s).size
@@ -230,6 +287,24 @@ class SettingsActivity : BaseActivity() {
                 parentalUnlocked = true
                 toast("PIN set")
                 refresh()
+            }
+        }
+    }
+
+    private fun testSubtitles() {
+        if (store.subsApiKey.isBlank()) { toast("Add your API key first"); return }
+        toast("Checking…")
+        lifecycleScope.launch {
+            try {
+                val who = OpenSubtitles.login(store, force = true)
+                val n = OpenSubtitles.search(store, OpenSubtitles.Query("The Matrix", "1999", "603", null, null)).size
+                AlertDialog.Builder(this@SettingsActivity).setTitle("Online subtitles work")
+                    .setMessage((who ?: "Using the API key without an account.") + "\n\nTest search found $n subtitles in ${OpenSubtitles.languages(store)}.")
+                    .setPositiveButton("OK", null).show()
+            } catch (e: Exception) {
+                AlertDialog.Builder(this@SettingsActivity).setTitle("Online subtitles")
+                    .setMessage(e.message ?: "Couldn't reach the subtitle server.")
+                    .setPositiveButton("OK", null).show()
             }
         }
     }

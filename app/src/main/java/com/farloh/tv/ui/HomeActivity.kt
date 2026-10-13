@@ -116,10 +116,7 @@ class HomeActivity : BaseActivity() {
         startActivity(Intent(this, BrowseActivity::class.java).putExtra(BrowseActivity.EXTRA_SECTION, section.name))
     }
 
-    private fun openDownloads() {
-        val cls = runCatching { Class.forName("com.farloh.tv.ui.DownloadsActivity") }.getOrNull()
-        if (cls == null) toast("Downloads are coming in the next update") else startActivity(Intent(this, cls))
-    }
+    private fun openDownloads() = startActivity(Intent(this, DownloadsActivity::class.java))
 
     private fun refresh(section: Section, quiet: Boolean = false) {
         if (section in busy) return

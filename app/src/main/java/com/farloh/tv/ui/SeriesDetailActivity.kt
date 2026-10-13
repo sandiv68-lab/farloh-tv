@@ -11,6 +11,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.farloh.tv.R
 import com.farloh.tv.data.Account
+import com.farloh.tv.data.DownloadState
+import com.farloh.tv.data.Downloads
 import com.farloh.tv.data.Episode
 import com.farloh.tv.data.SeriesInfo
 import com.farloh.tv.data.Xtream
@@ -38,7 +40,7 @@ class SeriesDetailActivity : BaseActivity() {
     private var currentSeason = 0
 
     private val seasonAdapter = SimpleAdapter<Int>(R.layout.chip_season, 1.05f) { v, season, _ ->
-        (v as TextView).text = if (season == 0) "Specials" else "Season $season"
+        (v as TextView).text = seasonLabel(season)
         v.isSelected = season == currentSeason
     }
 
@@ -74,13 +76,21 @@ class SeriesDetailActivity : BaseActivity() {
         episodesRv.adapter = episodeAdapter
         episodeAdapter.onClick = { _, pos -> playEpisode(pos, external = null) }
         episodeAdapter.onLongClick = { ep, pos ->
+            val downloaded = Downloads.find(this, "${Kind.EPISODE.name}_${ep.id}") != null
             AlertDialog.Builder(this)
                 .setTitle(episodeTitle(ep))
-                .setItems(arrayOf("Play", "Play from start", "Play in MX Player / VLC")) { _, which ->
+                .setItems(arrayOf(
+                    "Play", "Play from start", "Play in MX Player / VLC",
+                    if (downloaded) "Open Downloads" else "Download episode",
+                    "Download all of ${seasonLabel(currentSeason)}",
+                )) { _, which ->
                     when (which) {
                         0 -> playEpisode(pos, external = false)
                         1 -> playEpisode(pos, external = false, resume = false)
                         2 -> playEpisode(pos, external = true)
+                        3 -> if (downloaded) startActivity(android.content.Intent(this, DownloadsActivity::class.java))
+                             else downloadEpisodes(listOf(ep))
+                        4 -> downloadEpisodes(episodeAdapter.items)
                     }
                 }
                 .show()
@@ -147,6 +157,30 @@ class SeriesDetailActivity : BaseActivity() {
         findViewById<RecyclerView>(R.id.episodes).scrollToPosition(0)
     }
 
+    private fun seasonLabel(season: Int) = if (season == 0) "Specials" else "Season $season"
+
+    private fun remotePlayable(ep: Episode) = Playable(
+        Kind.EPISODE, ep.id, episodeTitle(ep), account.episodeUrl(ep.id, ep.ext), ep.image ?: cover,
+        subtitle = showName, searchTitle = showName, tmdbId = info?.tmdbId, year = info?.year?.ifBlank { null },
+        season = ep.season, episode = ep.num, ext = ep.ext,
+    )
+
+    private fun downloadEpisodes(eps: List<Episode>) {
+        var started = 0
+        var lastError: String? = null
+        for (ep in eps) {
+            if (Downloads.find(this, "${Kind.EPISODE.name}_${ep.id}") != null) continue
+            val err = Downloads.start(this, remotePlayable(ep))
+            if (err == null) started++ else lastError = err
+        }
+        toast(when {
+            started > 0 -> "Downloading $started episode(s). See progress in Downloads."
+            lastError != null -> lastError!!
+            else -> "Already downloaded."
+        }, long = true)
+        episodeAdapter.notifyDataSetChanged()
+    }
+
     private fun episodeTitle(ep: Episode): String {
         val label = "S${ep.season} E${ep.num}"
         return if (ep.title.isBlank()) label else "$label · ${ep.title}"
@@ -155,7 +189,11 @@ class SeriesDetailActivity : BaseActivity() {
     private fun bindEpisode(v: View, ep: Episode) {
         v.findViewById<ImageView>(R.id.thumb).loadImage(ep.image ?: cover)
         v.findViewById<TextView>(R.id.title).text = episodeTitle(ep)
-        v.findViewById<TextView>(R.id.meta).text = ep.duration
+        val dl = Downloads.find(this, "${Kind.EPISODE.name}_${ep.id}")
+        v.findViewById<TextView>(R.id.meta).text = listOfNotNull(
+            ep.duration.ifBlank { null },
+            dl?.let { "⬇ in Downloads" },
+        ).joinToString("  •  ")
         v.findViewById<TextView>(R.id.plot).text = ep.plot
         val bar = v.findViewById<ProgressBar>(R.id.watched)
         val progress = store.progress("${Kind.EPISODE.name}_${ep.id}")
@@ -169,8 +207,13 @@ class SeriesDetailActivity : BaseActivity() {
 
     private fun playEpisode(position: Int, external: Boolean?, resume: Boolean = true) {
         val eps = episodeAdapter.items
-        val queue = eps.map {
-            Playable(Kind.EPISODE, it.id, episodeTitle(it), account.episodeUrl(it.id, it.ext), it.image ?: cover, subtitle = showName)
+        val local = Downloads.list(this).associateBy { it.key }
+        val states = Downloads.status(this, local.values.toList())
+        val queue = eps.map { ep ->
+            val key = "${Kind.EPISODE.name}_${ep.id}"
+            val entry = local[key]
+            val offline = if (entry != null && states[key]?.state == DownloadState.DONE) Downloads.playable(this, entry) else null
+            offline?.copy(tmdbId = info?.tmdbId) ?: remotePlayable(ep)
         }
         Launcher.play(this, queue, position, external = external, resume = resume, categoryName = showName)
     }

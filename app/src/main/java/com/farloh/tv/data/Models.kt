@@ -102,6 +102,7 @@ data class MovieInfo(
     val poster: String?,
     val backdrop: String?,
     val ext: String?,
+    val tmdbId: String? = null,
 )
 
 data class Episode(
@@ -125,6 +126,7 @@ data class SeriesInfo(
     val cover: String?,
     val backdrop: String?,
     val episodes: Map<Int, List<Episode>>,
+    val tmdbId: String? = null,
 )
 
 enum class Section(val key: String, val title: String, val catAction: String, val listAction: String) {

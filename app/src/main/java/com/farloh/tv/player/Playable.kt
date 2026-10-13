@@ -19,6 +19,13 @@ data class Playable(
     val logo: String? = null,
     val num: String? = null,
     val subtitle: String? = null,
+    // Used to find online subtitles and to rebuild download links.
+    val searchTitle: String? = null,
+    val tmdbId: String? = null,
+    val year: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+    val ext: String? = null,
 ) {
     val resumeKey: String get() = "${kind.name}_$id"
 }
@@ -64,7 +71,16 @@ object External {
     )
 
     fun open(context: Context, p: Playable) {
-        val uri = Uri.parse(p.url)
+        val local = p.url.startsWith("file://")
+        val uri = if (local) {
+            try {
+                androidx.core.content.FileProvider.getUriForFile(
+                    context, context.packageName + ".files", java.io.File(Uri.parse(p.url).path ?: ""))
+            } catch (e: Exception) {
+                Toast.makeText(context, "Can't share this file with another player.", Toast.LENGTH_LONG).show()
+                return
+            }
+        } else Uri.parse(p.url)
         for (pkg in PREFERRED) {
             try {
                 context.startActivity(intent(uri, p).setPackage(pkg))
@@ -86,4 +102,5 @@ object External {
         .setDataAndType(uri, "video/*")
         .putExtra("title", p.title)
         .putExtra("secure_uri", true)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
 }

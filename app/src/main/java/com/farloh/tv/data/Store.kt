@@ -214,6 +214,20 @@ class Store private constructor(context: Context) {
     /** "auto", "mobile" or "tv". */
     var deviceMode: String by StringPref("device_mode", "auto")
 
+    // ---- Online subtitles (OpenSubtitles.com) ----
+    /** "default" (api.opensubtitles.com), "vip" (vip-api.opensubtitles.com) or "custom". */
+    var subsServer: String by StringPref("subs_server", "default")
+    var subsCustomUrl: String by StringPref("subs_custom_url", "")
+    var subsApiKey: String by StringPref("subs_api_key", "")
+    var subsUsername: String by StringPref("subs_username", "")
+    var subsPassword: String
+        get() = prefs.getString("subs_password", null)?.let { Crypto.decrypt(it) } ?: ""
+        set(value) = prefs.edit().apply {
+            if (value.isEmpty()) remove("subs_password") else putString("subs_password", Crypto.encrypt(value))
+        }.apply()
+    /** Comma-separated language codes for online search, e.g. "en,ms". Empty = subtitle language / device. */
+    var subsLanguages: String by StringPref("subs_languages", "")
+
     // ---- Parental PIN (optional; stored as a salted hash) ----
     val hasPin: Boolean get() = prefs.getString("parental_pin", null) != null
     fun setPin(pin: String?) {
