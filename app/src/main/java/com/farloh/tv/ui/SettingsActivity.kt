@@ -130,6 +130,20 @@ class SettingsActivity : BaseActivity() {
             Dialogs.choose(this, "Decoder", DECODERS.map { "${it.second} – ${DECODER_HINTS[it.first]}" },
                 DECODERS.map { it.first }, store.decoderMode) { store.decoderMode = it; refresh() }
         }
+        r += Row.Item("Video screen size", label(RESIZES, store.videoResize), "Can also be changed while watching (Video button)") {
+            Dialogs.choose(this, "Video screen size", RESIZES.map { it.second }, RESIZES.map { it.first }, store.videoResize) {
+                store.videoResize = it; refresh()
+            }
+        }
+        r += Row.Item("Touch gestures", onOff(store.playerGestures),
+            "Left side: brightness • Right side: volume • Sideways: seek • Pinch: zoom • Double-tap: ±10 s") {
+            store.playerGestures = !store.playerGestures; refresh()
+        }
+        r += Row.Item("Back button in player", if (store.pipOnBack) "Picture-in-picture" else "Close player",
+            "Picture-in-picture keeps the video playing in a small window while you browse") {
+            Dialogs.choose(this, "Back button in player", listOf("Shrink to picture-in-picture", "Close the player"),
+                listOf(true, false), store.pipOnBack) { store.pipOnBack = it; refresh() }
+        }
         r += Row.Item("Buffer size", label(BUFFERS, store.bufferSize), "Bigger buffer = fewer pauses, slower start") {
             Dialogs.choose(this, "Buffer size", BUFFERS.map { it.second }, BUFFERS.map { it.first }, store.bufferSize) {
                 store.bufferSize = it; refresh()
@@ -202,6 +216,25 @@ class SettingsActivity : BaseActivity() {
         r += Row.Item("Parental PIN", if (store.hasPin) "On" else "Off (optional)",
             "When set, the PIN is needed to change hidden groups") {
             unlockParental { pinOptions() }
+        }
+
+        r += Row.Header("Screen")
+        r += Row.Item("App size (zoom)", "${store.uiZoom}%",
+            "Smaller = more fits on screen. Ignores the phone's own display-size setting") {
+            Dialogs.choose(this, "App size", ZOOMS.map { if (it == 100) "100% (standard)" else "$it%" }, ZOOMS, store.uiZoom) {
+                if (it != store.uiZoom) { store.uiZoom = it; restartApp() }
+            }
+        }
+        r += Row.Item("Text size", if (store.textZoom <= 0) "Follow phone" else "${store.textZoom}%") {
+            Dialogs.choose(this, "Text size", TEXT_ZOOMS.map { if (it <= 0) "Follow phone setting" else "$it%" }, TEXT_ZOOMS, store.textZoom) {
+                if (it != store.textZoom) { store.textZoom = it; restartApp() }
+            }
+        }
+        r += Row.Item("Screen orientation", if (store.orientation == "auto") "Auto-rotate" else "Landscape") {
+            Dialogs.choose(this, "Screen orientation", listOf("Landscape (recommended)", "Auto-rotate"),
+                listOf("landscape", "auto"), store.orientation) {
+                if (it != store.orientation) { store.orientation = it; restartApp() }
+            }
         }
 
         r += Row.Header("Device")
@@ -342,6 +375,15 @@ class SettingsActivity : BaseActivity() {
         AlertDialog.Builder(this).setTitle("Account").setMessage(text).setPositiveButton("OK", null).show()
     }
 
+    /** Size settings need the screens rebuilt; reopen Settings on top of a fresh home screen. */
+    private fun restartApp() {
+        startActivities(arrayOf(
+            Intent(this, HomeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
+            Intent(this, SettingsActivity::class.java),
+        ))
+        finish()
+    }
+
     private fun onOff(b: Boolean) = if (b) "On" else "Off"
     private fun limitLabel(n: Int) = if (n <= 0) "Off" else n.toString()
     private fun label(options: List<Pair<String, String>>, value: String) = options.firstOrNull { it.first == value }?.second.orEmpty()
@@ -356,6 +398,9 @@ class SettingsActivity : BaseActivity() {
         )
         private val BUFFERS = listOf("small" to "Small (fast start)", "normal" to "Normal", "large" to "Large", "xl" to "Very large")
         private val RECENT_LIMITS = listOf(0, 25, 50, 100, 200)
+        private val ZOOMS = listOf(60, 70, 80, 90, 100, 110, 125)
+        private val TEXT_ZOOMS = listOf(0, 80, 90, 100, 115, 130)
+        val RESIZES = listOf("fit" to "Fit", "stretch" to "Stretch", "crop" to "Crop (fill screen)", "16:9" to "16:9", "4:3" to "4:3")
         private val HISTORY_LIMITS = listOf(0, 10, 20, 50)
         private val LANGUAGES = listOf(
             "" to "Device language", "en" to "English", "zh" to "Chinese", "ms" to "Malay", "ta" to "Tamil",

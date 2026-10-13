@@ -17,6 +17,7 @@
         <TextView android:id="@+id/vodTitle" android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:ellipsize="end" android:maxLines="2" android:textColor="@color/text"
             android:textSize="20sp" android:textStyle="bold" />
+        <Button android:id="@+id/vodVideo" style="@style/Btn" android:layout_marginEnd="8dp" android:text="Video" />
         <Button android:id="@+id/vodSubs" style="@style/Btn" android:layout_marginEnd="8dp" android:text="Subtitles" />
         <Button android:id="@+id/vodPip" style="@style/Btn" android:layout_marginEnd="8dp" android:text="PiP" />
         <Button android:id="@+id/vodExternal" style="@style/Btn" android:drawableStart="@drawable/ic_external"
@@ -56,6 +57,7 @@
                 <Button android:id="@+id/btnChannels" style="@style/Btn" android:text="☰  Channels" />
                 <Button android:id="@+id/btnPrev" style="@style/Btn" android:layout_marginStart="8dp" android:text="◀  Prev" />
                 <Button android:id="@+id/btnNext" style="@style/Btn" android:layout_marginStart="8dp" android:text="Next  ▶" />
+                <Button android:id="@+id/btnVideo" style="@style/Btn" android:layout_marginStart="8dp" android:text="Video" />
                 <Button android:id="@+id/btnAudio" style="@style/Btn" android:layout_marginStart="8dp" android:text="Audio" />
                 <Button android:id="@+id/btnSubs" style="@style/Btn" android:layout_marginStart="8dp" android:text="Subtitles" />
                 <Button android:id="@+id/btnFav" style="@style/Btn" android:layout_marginStart="8dp" android:text="☆  Favourite" />
@@ -76,6 +78,17 @@
         <androidx.recyclerview.widget.RecyclerView android:id="@+id/channelList" android:layout_width="match_parent"
             android:layout_height="match_parent" android:clipToPadding="false" android:paddingBottom="24dp" />
     </LinearLayout>
+
+    <!-- Brightness / volume / seek / zoom read-out while swiping -->
+    <TextView android:id="@+id/gestureInfo" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal|top" android:layout_marginTop="48dp" android:background="@drawable/panel_bg"
+        android:gravity="center" android:minWidth="160dp" android:paddingStart="22dp" android:paddingTop="12dp"
+        android:paddingEnd="22dp" android:paddingBottom="12dp" android:textColor="@color/text" android:textSize="20sp"
+        android:textStyle="bold" android:visibility="gone" />
+
+    <!-- Shown when the screen is locked -->
+    <Button android:id="@+id/unlock" style="@style/Btn.Primary" android:layout_gravity="center_vertical|start"
+        android:layout_marginStart="28dp" android:text="Unlock" android:visibility="gone" />
 
     <TextView android:id="@+id/status" android:layout_width="wrap_content" android:layout_height="wrap_content"
         android:layout_gravity="center" android:layout_margin="32dp" android:background="@drawable/panel_bg"

@@ -214,6 +214,20 @@ class Store private constructor(context: Context) {
     /** "auto", "mobile" or "tv". */
     var deviceMode: String by StringPref("device_mode", "auto")
 
+    /** "landscape" (default) or "auto" (follow the phone's rotation). */
+    var orientation: String by StringPref("orientation", "landscape")
+    /** App size in percent of the device's standard size, ignoring the phone's own display-size setting. */
+    var uiZoom: Int by IntPref("ui_zoom", 100)
+    /** Text size in percent; 0 = follow the phone's font-size setting. */
+    var textZoom: Int by IntPref("text_zoom", 100)
+
+    /** Player: Back button shrinks the video into picture-in-picture instead of closing it. */
+    var pipOnBack: Boolean by BoolPref("pip_on_back", true)
+    /** Player screen size: "fit", "stretch", "crop" or "original". */
+    var videoResize: String by StringPref("video_resize", "fit")
+    /** Player: swipe for brightness / volume / seek, pinch to zoom, double-tap to skip. */
+    var playerGestures: Boolean by BoolPref("player_gestures", true)
+
     // ---- Online subtitles (OpenSubtitles.com) ----
     /** "default" (api.opensubtitles.com), "vip" (vip-api.opensubtitles.com) or "custom". */
     var subsServer: String by StringPref("subs_server", "default")

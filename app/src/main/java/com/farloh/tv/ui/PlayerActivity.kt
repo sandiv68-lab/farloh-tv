@@ -4,6 +4,18 @@ import android.app.PictureInPictureParams
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Rect
+import android.media.AudioManager
+import android.provider.Settings
+import android.view.GestureDetector
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
+import android.view.ViewConfiguration
+import androidx.activity.OnBackPressedCallback
+import androidx.media3.common.VideoSize
+import androidx.media3.ui.AspectRatioFrameLayout
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -96,6 +108,9 @@ class PlayerActivity : BaseActivity() {
     private lateinit var panelTitle: TextView
     private lateinit var channelList: RecyclerView
     private lateinit var status: TextView
+    private lateinit var gestureInfo: TextView
+    private lateinit var unlockButton: View
+    private var pipActive = false
 
     private val current: Playable get() = items[index]
     private val isLive: Boolean get() = items.firstOrNull()?.kind == Kind.LIVE
@@ -153,6 +168,24 @@ class PlayerActivity : BaseActivity() {
         panelTitle = findViewById(R.id.panelTitle)
         channelList = findViewById(R.id.channelList)
         status = findViewById(R.id.status)
+        gestureInfo = findViewById(R.id.gestureInfo)
+        unlockButton = findViewById(R.id.unlock)
+        unlockButton.setOnClickListener { setLocked(false) }
+        findViewById<View>(R.id.vodVideo).setOnClickListener { videoMenu() }
+        findViewById<View>(R.id.btnVideo).setOnClickListener { videoMenu() }
+        applyResize()
+
+        // Back: close overlays first, then shrink to picture-in-picture (Settings → Back button) or close.
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                when {
+                    locked -> showUnlock()
+                    channelPanel.visibility == View.VISIBLE -> hidePanel()
+                    store.pipOnBack && store.pipEnabled && player?.isPlaying == true && enterPip() -> Unit
+                    else -> finish()
+                }
+            }
+        })
 
         playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
         playerView.setKeepContentOnPlayerReset(true)
@@ -207,6 +240,8 @@ class PlayerActivity : BaseActivity() {
 
     override fun onStop() {
         super.onStop()
+        // Picture-in-picture window was closed: end this player task.
+        if (pipActive) finishAndRemoveTask()
         savePosition()
         PlayQueue.index = index
         resumeOnStart = true
@@ -317,29 +352,58 @@ class PlayerActivity : BaseActivity() {
     private fun pipSupported(): Boolean =
         Build.VERSION.SDK_INT >= 26 && packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
 
+    private fun pipRatio(): Rational {
+        val vs = player?.videoSize
+        if (vs != null && vs.width > 0 && vs.height > 0) {
+            val r = vs.width * vs.pixelWidthHeightRatio / vs.height
+            if (r in 0.5f..2.3f) return Rational((r * 1000).roundToInt(), 1000)
+        }
+        return Rational(16, 9)
+    }
+
     private fun enterPip(): Boolean {
         if (!pipSupported() || Build.VERSION.SDK_INT < 26) return false
         return try {
-            enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build())
+            enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(pipRatio()).build())
         } catch (e: Exception) {
             false
         }
     }
 
+    /** Android 12+: let the system slide into picture-in-picture smoothly when going home. */
+    private fun updatePipParams() {
+        if (Build.VERSION.SDK_INT < 31 || !pipSupported()) return
+        try {
+            setPictureInPictureParams(
+                PictureInPictureParams.Builder()
+                    .setAspectRatio(pipRatio())
+                    .setAutoEnterEnabled(store.pipEnabled && player?.isPlaying == true)
+                    .setSeamlessResizeEnabled(true)
+                    .build()
+            )
+        } catch (e: Exception) {
+            // ignore
+        }
+    }
+
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
+        if (Build.VERSION.SDK_INT >= 31) return // handled by auto-enter
         if (store.pipEnabled && player?.isPlaying == true) enterPip()
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        pipActive = isInPictureInPictureMode
         if (isInPictureInPictureMode) {
             hideInfo()
             hidePanel()
             vodTop.visibility = View.GONE
+            gestureInfo.visibility = View.GONE
+            unlockButton.visibility = View.GONE
             playerView.useController = false
         } else {
-            playerView.useController = !isLive
+            playerView.useController = !isLive && !locked
         }
     }
 
@@ -513,6 +577,13 @@ class PlayerActivity : BaseActivity() {
             }
         }
 
+        override fun onIsPlayingChanged(isPlaying: Boolean) = updatePipParams()
+
+        override fun onVideoSizeChanged(videoSize: VideoSize) {
+            // Re-apply a forced 16:9 / 4:3 after the player sets the video's own shape.
+            if (forcedRatio > 0f) handler.post { applyForcedRatio() }
+        }
+
         override fun onPlayerError(error: PlaybackException) {
             val exo = player ?: return
             if (isLive) {
@@ -661,6 +732,292 @@ class PlayerActivity : BaseActivity() {
 
     private fun hidePanel() {
         channelPanel.visibility = View.GONE
+    }
+
+    // ---------------- Video options ----------------
+
+    private var forcedRatio = 0f
+    private var zoom = 1f
+    private var locked = false
+    private var sleepMinutes = 0
+    private var sleepRunnable: Runnable? = null
+    private val hideGestureInfo = Runnable { gestureInfo.visibility = View.GONE }
+    private val hideUnlock = Runnable { unlockButton.visibility = View.GONE }
+
+    private fun contentFrame(): AspectRatioFrameLayout? = playerView.videoSurfaceView?.parent as? AspectRatioFrameLayout
+
+    private fun applyResize() {
+        val mode = store.videoResize
+        playerView.resizeMode = when (mode) {
+            "stretch" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+            "crop" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+        }
+        forcedRatio = when (mode) { "16:9" -> 16f / 9f; "4:3" -> 4f / 3f; else -> 0f }
+        applyForcedRatio()
+    }
+
+    private fun applyForcedRatio() {
+        val frame = contentFrame() ?: return
+        if (forcedRatio > 0f) {
+            frame.setAspectRatio(forcedRatio)
+        } else {
+            val vs = player?.videoSize ?: return
+            if (vs.width > 0 && vs.height > 0) frame.setAspectRatio(vs.width * vs.pixelWidthHeightRatio / vs.height)
+        }
+    }
+
+    private fun applyZoom() {
+        contentFrame()?.apply { scaleX = zoom; scaleY = zoom }
+    }
+
+    private fun videoMenu() {
+        val exo = player
+        val opts = ArrayList<Pair<String, () -> Unit>>()
+        opts += "Screen size: ${SettingsActivity.RESIZES.firstOrNull { it.first == store.videoResize }?.second ?: "Fit"}" to {
+            Dialogs.choose(this, "Screen size", SettingsActivity.RESIZES.map { it.second },
+                SettingsActivity.RESIZES.map { it.first }, store.videoResize) {
+                store.videoResize = it; zoom = 1f; applyZoom(); applyResize()
+                showGestureInfo(SettingsActivity.RESIZES.first { r -> r.first == it }.second)
+            }
+        }
+        if (zoom > 1.01f) opts += "Reset zoom (${(zoom * 100).roundToInt()}%)" to { zoom = 1f; applyZoom() }
+        if (!isLive && exo != null) opts += "Playback speed: ${exo.playbackParameters.speed}x" to {
+            val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
+            Dialogs.choose(this, "Playback speed", speeds.map { "${it}x" }, speeds, exo.playbackParameters.speed) {
+                player?.setPlaybackSpeed(it)
+            }
+        }
+        opts += "Audio track" to { trackDialog(C.TRACK_TYPE_AUDIO, "Audio") }
+        opts += "Subtitles" to { if (isLive) trackDialog(C.TRACK_TYPE_TEXT, "Subtitles") else subtitleMenu() }
+        opts += "Sleep timer: ${if (sleepMinutes > 0) "$sleepMinutes min" else "Off"}" to {
+            val mins = listOf(0, 15, 30, 45, 60, 90, 120)
+            Dialogs.choose(this, "Sleep timer", mins.map { if (it == 0) "Off" else "$it minutes" }, mins, sleepMinutes) { setSleepTimer(it) }
+        }
+        if (!tvMode) opts += "Lock screen (ignore touches)" to { setLocked(true) }
+        if (!tvMode) opts += "Touch gestures: ${if (store.playerGestures) "On" else "Off"}" to {
+            store.playerGestures = !store.playerGestures
+            toast(if (store.playerGestures) "Gestures on" else "Gestures off")
+        }
+        if (pipSupported() && store.pipEnabled) opts += "Picture-in-picture" to { enterPip(); Unit }
+        AlertDialog.Builder(this)
+            .setTitle("Video")
+            .setItems(opts.map { it.first }.toTypedArray()) { _, which -> opts[which].second() }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun setSleepTimer(minutes: Int) {
+        sleepRunnable?.let { handler.removeCallbacks(it) }
+        sleepRunnable = null
+        sleepMinutes = minutes
+        if (minutes <= 0) { toast("Sleep timer off"); return }
+        val r = Runnable {
+            player?.pause()
+            sleepMinutes = 0
+            showStatus("Sleep timer: playback paused")
+        }
+        sleepRunnable = r
+        handler.postDelayed(r, minutes * 60_000L)
+        toast("Playback will pause in $minutes minutes")
+    }
+
+    private fun setLocked(on: Boolean) {
+        locked = on
+        if (on) {
+            playerView.hideController()
+            playerView.useController = false
+            hideInfo(); hidePanel()
+            vodTop.visibility = View.GONE
+            showUnlock()
+        } else {
+            handler.removeCallbacks(hideUnlock)
+            unlockButton.visibility = View.GONE
+            playerView.useController = !isLive
+        }
+    }
+
+    private fun showUnlock() {
+        unlockButton.visibility = View.VISIBLE
+        handler.removeCallbacks(hideUnlock)
+        handler.postDelayed(hideUnlock, 3000)
+    }
+
+    private fun showGestureInfo(text: String) {
+        gestureInfo.text = text
+        gestureInfo.visibility = View.VISIBLE
+        handler.removeCallbacks(hideGestureInfo)
+        handler.postDelayed(hideGestureInfo, 1200)
+    }
+
+    // ---------------- Touch gestures (phones / tablets) ----------------
+
+    private enum class Swipe { NONE, BRIGHTNESS, VOLUME, SEEK, ZOOM }
+    private var swipe = Swipe.NONE
+    private var gestureAllowed = false
+    private var downX = 0f
+    private var downY = 0f
+    private var startBrightness = 0.5f
+    private var startVolume = 0
+    private var maxVolume = 15
+    private var seekStart = 0L
+    private var seekTarget = 0L
+    private val audioManager by lazy { getSystemService(AUDIO_SERVICE) as AudioManager }
+    private val touchSlop by lazy { ViewConfiguration.get(this).scaledTouchSlop * 2 }
+
+    private val scaleDetector by lazy {
+        ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean = gestureAllowed
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                zoom = (zoom * detector.scaleFactor).coerceIn(1f, 4f)
+                applyZoom()
+                showGestureInfo("Zoom ${(zoom * 100).roundToInt()}%")
+                return true
+            }
+        })
+    }
+
+    private val tapDetector by lazy {
+        GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                if (!gestureAllowed || isLive) return false
+                val w = window.decorView.width
+                return when {
+                    e.x < w / 3f -> { seekBy(-10_000); true }
+                    e.x > w * 2 / 3f -> { seekBy(10_000); true }
+                    else -> false
+                }
+            }
+        })
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (Build.VERSION.SDK_INT >= 24 && isInPictureInPictureMode) return super.dispatchTouchEvent(ev)
+        if (locked) {
+            if (unlockButton.visibility == View.VISIBLE && hits(unlockButton, ev)) return super.dispatchTouchEvent(ev)
+            if (ev.actionMasked == MotionEvent.ACTION_UP) showUnlock()
+            return true
+        }
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+            swipe = Swipe.NONE
+            downX = ev.x
+            downY = ev.y
+            gestureAllowed = store.playerGestures && !startsOnControls(ev)
+        }
+        if (!gestureAllowed) return super.dispatchTouchEvent(ev)
+
+        scaleDetector.onTouchEvent(ev)
+        if (swipe == Swipe.NONE && ev.pointerCount >= 2 && scaleDetector.isInProgress) {
+            swipe = Swipe.ZOOM
+            cancelChildren(ev)
+        }
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_MOVE -> {
+                if (swipe == Swipe.NONE && ev.pointerCount == 1) {
+                    val dx = ev.x - downX
+                    val dy = ev.y - downY
+                    if (abs(dy) > touchSlop && abs(dy) > abs(dx) * 1.5f) {
+                        startVerticalSwipe(); cancelChildren(ev)
+                    } else if (!isLive && abs(dx) > touchSlop && abs(dx) > abs(dy) * 1.5f) {
+                        startSeekSwipe(); cancelChildren(ev)
+                    }
+                } else if (swipe == Swipe.BRIGHTNESS || swipe == Swipe.VOLUME || swipe == Swipe.SEEK) {
+                    updateSwipe(ev)
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> if (swipe != Swipe.NONE) {
+                if (swipe == Swipe.SEEK && ev.actionMasked == MotionEvent.ACTION_UP) player?.seekTo(seekTarget)
+                swipe = Swipe.NONE
+                handler.removeCallbacks(hideGestureInfo)
+                handler.postDelayed(hideGestureInfo, 700)
+                return true
+            }
+        }
+        if (swipe != Swipe.NONE) return true
+        if (tapDetector.onTouchEvent(ev)) return true
+        return super.dispatchTouchEvent(ev)
+    }
+
+    private fun hits(v: View, ev: MotionEvent): Boolean {
+        if (v.visibility != View.VISIBLE) return false
+        val r = Rect()
+        return v.getGlobalVisibleRect(r) && r.contains(ev.rawX.toInt(), ev.rawY.toInt())
+    }
+
+    /** Leave buttons, lists and the seek bar alone, and the screen edges (system gestures). */
+    private fun startsOnControls(ev: MotionEvent): Boolean {
+        if (hits(channelPanel, ev) || hits(infoBar, ev) || hits(vodTop, ev) || hits(status, ev)) return true
+        val h = window.decorView.height
+        if (ev.y < h * 0.06f || ev.y > h * 0.94f) return true
+        if (!isLive && playerView.isControllerFullyVisible && ev.y > h * 0.70f) return true
+        return false
+    }
+
+    private fun cancelChildren(ev: MotionEvent) {
+        val cancel = MotionEvent.obtain(ev)
+        cancel.action = MotionEvent.ACTION_CANCEL
+        super.dispatchTouchEvent(cancel)
+        cancel.recycle()
+    }
+
+    private fun startVerticalSwipe() {
+        if (downX < window.decorView.width / 2f) {
+            swipe = Swipe.BRIGHTNESS
+            val current = window.attributes.screenBrightness
+            startBrightness = if (current >= 0f) current else try {
+                Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS) / 255f
+            } catch (e: Exception) { 0.5f }
+        } else {
+            swipe = Swipe.VOLUME
+            maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+            startVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        }
+    }
+
+    private fun startSeekSwipe() {
+        val exo = player ?: return
+        if (exo.duration <= 0 || !exo.isCurrentMediaItemSeekable) return
+        swipe = Swipe.SEEK
+        seekStart = exo.currentPosition
+        seekTarget = seekStart
+    }
+
+    private fun updateSwipe(ev: MotionEvent) {
+        val h = window.decorView.height.coerceAtLeast(1)
+        val w = window.decorView.width.coerceAtLeast(1)
+        val travel = (downY - ev.y) / (h * 0.7f)
+        when (swipe) {
+            Swipe.BRIGHTNESS -> {
+                val v = (startBrightness + travel).coerceIn(0.01f, 1f)
+                window.attributes = window.attributes.apply { screenBrightness = v }
+                showGestureInfo("Brightness ${(v * 100).roundToInt()}%")
+            }
+            Swipe.VOLUME -> {
+                val v = (startVolume + travel * maxVolume).roundToInt().coerceIn(0, maxVolume)
+                if (v != audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)) {
+                    try { audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, v, 0) } catch (e: SecurityException) { }
+                }
+                showGestureInfo(if (v == 0) "Volume: muted" else "Volume ${v * 100 / maxVolume}%")
+            }
+            Swipe.SEEK -> {
+                val exo = player ?: return
+                val dur = exo.duration
+                if (dur <= 0) return
+                val delta = ((ev.x - downX) / w * minOf(dur, 600_000L)).toLong()
+                seekTarget = (seekStart + delta).coerceIn(0L, dur)
+                val sign = if (seekTarget >= seekStart) "+" else "−"
+                showGestureInfo("$sign${Fmt.duration(abs(seekTarget - seekStart))}\n${Fmt.duration(seekTarget)} / ${Fmt.duration(dur)}")
+            }
+            else -> Unit
+        }
+    }
+
+    private fun seekBy(ms: Long) {
+        val exo = player ?: return
+        val dur = exo.duration
+        val target = (exo.currentPosition + ms).coerceAtLeast(0L).let { if (dur > 0) it.coerceAtMost(dur) else it }
+        exo.seekTo(target)
+        showGestureInfo(if (ms > 0) "+${ms / 1000} s" else "−${-ms / 1000} s")
     }
 
     // ---------------- Remote control ----------------

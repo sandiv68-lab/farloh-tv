@@ -3,9 +3,12 @@ package com.farloh.tv.ui
 import android.app.UiModeManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
+import android.util.DisplayMetrics
 import android.util.AttributeSet
 import android.view.LayoutInflater
 import android.view.View
@@ -57,9 +60,38 @@ open class BaseActivity : AppCompatActivity() {
 
     fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
+    /**
+     * Applies Settings → App size / Text size. The base is the device's standard density, so the phone's own
+     * "display size" zoom no longer changes the app; the user's chosen percentage is applied on top.
+     */
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(scaledContext(newBase))
+    }
+
+    private fun scaledContext(newBase: Context): Context = try {
+        val store = Store.get(newBase)
+        val base = newBase.resources.configuration
+        val config = Configuration(base)
+        val stableDpi = if (Build.VERSION.SDK_INT >= 24) DisplayMetrics.DENSITY_DEVICE_STABLE else base.densityDpi
+        val targetDpi = (stableDpi * store.uiZoom / 100f).toInt().coerceAtLeast(80)
+        if (base.densityDpi > 0 && targetDpi != base.densityDpi) {
+            val ratio = base.densityDpi.toFloat() / targetDpi
+            config.densityDpi = targetDpi
+            config.screenWidthDp = (base.screenWidthDp * ratio).toInt()
+            config.screenHeightDp = (base.screenHeightDp * ratio).toInt()
+            config.smallestScreenWidthDp = (base.smallestScreenWidthDp * ratio).toInt()
+        }
+        if (store.textZoom > 0) config.fontScale = store.textZoom / 100f
+        newBase.createConfigurationContext(config)
+    } catch (e: Exception) {
+        newBase // keep default sizes if anything goes wrong
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        // Landscape by default (also set in the manifest so it doesn't flash portrait first).
+        if (store.orientation == "auto") requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
     }
 
     override fun setContentView(layoutResID: Int) {

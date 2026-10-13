@@ -8,6 +8,7 @@
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.screen.portrait" android:required="false" />
+    <uses-feature android:name="android.hardware.screen.landscape" android:required="false" />
 
     <!-- Lets the app hand streams to MX Player / VLC on Android 11+. -->
     <queries>
@@ -36,6 +37,7 @@
         <activity
             android:name=".ui.LoginActivity"
             android:exported="true"
+            android:screenOrientation="sensorLandscape"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -44,9 +46,9 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".ui.HomeActivity" android:exported="false" />
-        <activity android:name=".ui.SettingsActivity" android:exported="false" />
-        <activity android:name=".ui.DownloadsActivity" android:exported="false" />
+        <activity android:name=".ui.HomeActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
+        <activity android:name=".ui.SettingsActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
+        <activity android:name=".ui.DownloadsActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -55,14 +57,16 @@
             android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
-        <activity android:name=".ui.BrowseActivity" android:exported="false" android:windowSoftInputMode="adjustResize|stateHidden" />
-        <activity android:name=".ui.MovieDetailActivity" android:exported="false" />
-        <activity android:name=".ui.SeriesDetailActivity" android:exported="false" />
+        <activity android:name=".ui.BrowseActivity" android:exported="false" android:screenOrientation="sensorLandscape" android:windowSoftInputMode="adjustResize|stateHidden" />
+        <activity android:name=".ui.MovieDetailActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
+        <activity android:name=".ui.SeriesDetailActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
         <activity
             android:name=".ui.PlayerActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
+            android:taskAffinity="${applicationId}.player"
+            android:autoRemoveFromRecents="true"
             android:screenOrientation="sensorLandscape"
             android:supportsPictureInPicture="true"
             android:resizeableActivity="true"
