@@ -53,11 +53,11 @@
                     android:layout_gravity="center" android:visibility="gone" />
             </FrameLayout>
 
-            <LinearLayout android:id="@+id/epgPanel" android:layout_width="330dp" android:layout_height="match_parent"
-                android:layout_marginStart="10dp" android:layout_marginBottom="12dp" android:background="@drawable/panel_bg"
-                android:orientation="vertical" android:padding="14dp" android:visibility="gone">
+            <LinearLayout android:id="@+id/epgPanel" android:layout_width="230dp" android:layout_height="match_parent"
+                android:layout_marginStart="8dp" android:layout_marginBottom="12dp" android:background="@drawable/panel_bg"
+                android:orientation="vertical" android:padding="10dp" android:visibility="gone">
                 <TextView android:id="@+id/epgChannel" android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:ellipsize="end" android:maxLines="2" android:textColor="@color/text" android:textSize="18sp"
+                    android:ellipsize="end" android:maxLines="2" android:textColor="@color/text" android:textSize="15sp"
                     android:textStyle="bold" />
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp"
                     android:text="TV Guide" android:textColor="@color/accent2" android:textSize="12sp" />

@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"
-    android:paddingTop="8dp" android:paddingBottom="8dp">
+    android:paddingTop="6dp" android:paddingBottom="6dp">
     <TextView android:id="@+id/time" android:layout_width="wrap_content" android:layout_height="wrap_content"
-        android:textColor="@color/text2" android:textSize="12sp" />
+        android:textColor="@color/text2" android:textSize="11sp" />
     <TextView android:id="@+id/title" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:textColor="@color/text" android:textSize="15sp" />
+        android:ellipsize="end" android:maxLines="2" android:textColor="@color/text" android:textSize="13sp" />
     <ProgressBar android:id="@+id/progress" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent"
         android:layout_height="4dp" android:layout_marginTop="4dp" android:max="1000" android:progressTint="@color/accent"
         android:visibility="gone" />
     <TextView android:id="@+id/desc" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:layout_marginTop="4dp" android:ellipsize="end" android:maxLines="4" android:textColor="@color/text2"
-        android:textSize="13sp" android:visibility="gone" />
+        android:layout_marginTop="4dp" android:ellipsize="end" android:maxLines="3" android:textColor="@color/text2"
+        android:textSize="12sp" android:visibility="gone" />
 </LinearLayout>
