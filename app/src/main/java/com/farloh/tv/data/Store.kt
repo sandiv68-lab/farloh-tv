@@ -62,7 +62,7 @@ class Store private constructor(context: Context) {
     fun setItemCount(section: Section, count: Int) = prefs.edit().putInt("count_${section.key}", count).apply()
 
     // ---- Favourite channels ----
-    fun favorites(): Set<String> = HashSet(prefs.getStringSet("favorites", emptySet()) ?: emptySet())
+    fun favorites(): MutableSet<String> = HashSet(prefs.getStringSet("favorites", emptySet()) ?: emptySet())
 
     fun isFavorite(id: String) = favorites().contains(id)
 
