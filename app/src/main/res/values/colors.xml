@@ -1,0 +1,11 @@
+<resources>
+    <color name="bg_deep">#070B1A</color>
+    <color name="panel">#E00C1430</color>
+    <color name="panel_solid">#0E1630</color>
+    <color name="accent">#FF9F43</color>
+    <color name="accent2">#4FC3F7</color>
+    <color name="text">#FFFFFF</color>
+    <color name="text2">#AAB6D3</color>
+    <color name="danger">#FF7A7A</color>
+    <color name="scrim">#99000000</color>
+</resources>

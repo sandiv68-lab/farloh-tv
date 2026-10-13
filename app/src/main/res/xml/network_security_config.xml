@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Farloh TV network security:
+  * Plain http:// servers are allowed (most IPTV panels use http).
+  * https:// is verified against the device's own certificates PLUS an up-to-date bundle of
+    public root certificates (res/raw/extra_roots.pem: ISRG/Let's Encrypt X1+X2, Google Trust
+    Services, DigiCert G2/G3, Sectigo USERTrust, Amazon, SSL.com, GlobalSign R46, Certum).
+    Older TV boxes / Fire Sticks are missing several of these. Certificates are always verified.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/extra_roots" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="6dp"
+    android:background="@drawable/focus_bg" android:clickable="true" android:focusable="true"
+    android:orientation="horizontal" android:padding="8dp">
+    <FrameLayout android:layout_width="160dp" android:layout_height="90dp">
+        <ImageView android:id="@+id/thumb" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:background="@drawable/placeholder" android:scaleType="centerCrop" android:importantForAccessibility="no" />
+        <ProgressBar android:id="@+id/watched" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent"
+            android:layout_height="4dp" android:layout_gravity="bottom" android:max="1000" android:progressTint="@color/accent"
+            android:visibility="gone" />
+    </FrameLayout>
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+        android:layout_marginStart="14dp" android:orientation="vertical">
+        <TextView android:id="@+id/title" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:ellipsize="end" android:maxLines="2" android:textColor="@color/text" android:textSize="16sp" android:textStyle="bold" />
+        <TextView android:id="@+id/meta" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:textColor="@color/accent2" android:textSize="12sp" />
+        <TextView android:id="@+id/plot" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" android:ellipsize="end" android:maxLines="2" android:textColor="@color/text2"
+            android:textSize="13sp" />
+    </LinearLayout>
+</LinearLayout>

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent">
+
+    <ImageView android:layout_width="match_parent" android:layout_height="match_parent"
+        android:scaleType="centerCrop" android:src="@drawable/farloh_bg" android:importantForAccessibility="no" />
+    <View android:layout_width="match_parent" android:layout_height="match_parent" android:background="#55000000" />
+
+    <LinearLayout android:id="@+id/safe" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:orientation="vertical" android:padding="20dp">
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:gravity="center_vertical" android:orientation="horizontal">
+            <ImageView android:layout_width="wrap_content" android:layout_height="72dp" android:adjustViewBounds="true"
+                android:src="@drawable/farloh_logo" android:contentDescription="@string/app_name" />
+            <TextView android:id="@+id/account" android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:layout_marginStart="12dp" android:gravity="end"
+                android:textColor="@color/text2" android:textSize="13sp" />
+            <ImageButton android:id="@+id/settings" style="@style/IconBtn" android:layout_marginStart="12dp"
+                android:src="@drawable/ic_settings" android:contentDescription="Settings" />
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/tiles" android:layout_width="match_parent" android:layout_height="0dp"
+            android:layout_weight="1" android:layout_marginTop="8dp" android:orientation="horizontal">
+            <include android:id="@+id/tileLive" layout="@layout/home_tile"
+                android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" />
+            <include android:id="@+id/tileMovies" layout="@layout/home_tile"
+                android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" />
+            <include android:id="@+id/tileSeries" layout="@layout/home_tile"
+                android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>
