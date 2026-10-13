@@ -24,10 +24,12 @@ class SectionData(val categories: List<Category>, val items: List<CatalogItem>, 
  * when the user taps Refresh for that section (or the first time it is opened).
  */
 object Catalog {
-    private val memory = ConcurrentHashMap<Section, SectionData>()
+    private val memory = ConcurrentHashMap<String, SectionData>()
     private val locks = Section.values().associateWith { Mutex() }
 
-    private fun dir(ctx: Context) = File(ctx.filesDir, "catalog").apply { mkdirs() }
+    private fun pid(ctx: Context) = Store.get(ctx).activePlaylist?.id ?: "none"
+    private fun memKey(ctx: Context, s: Section) = "${pid(ctx)}/${s.key}"
+    private fun dir(ctx: Context) = File(ctx.filesDir, "catalog/${pid(ctx)}").apply { mkdirs() }
     private fun categoryFile(ctx: Context, s: Section) = File(dir(ctx), "${s.key}_categories.json")
     private fun itemFile(ctx: Context, s: Section) = File(dir(ctx), "${s.key}_items.json")
 
@@ -36,23 +38,35 @@ object Catalog {
 
     /** Cached data if available, otherwise downloads it once. */
     suspend fun load(ctx: Context, s: Section): SectionData = locks.getValue(s).withLock {
-        memory[s] ?: withContext(Dispatchers.IO) {
+        val key = memKey(ctx, s)
+        memory[key] ?: withContext(Dispatchers.IO) {
             if (!itemFile(ctx, s).exists() || !categoryFile(ctx, s).exists()) download(ctx, s)
             parse(ctx, s)
-        }.also { memory[s] = it }
+        }.also { memory[key] = it }
     }
 
     /** Manual refresh of one section. On failure the previous cache is kept. */
     suspend fun refresh(ctx: Context, s: Section): SectionData = locks.getValue(s).withLock {
+        val key = memKey(ctx, s)
         withContext(Dispatchers.IO) {
             download(ctx, s)
             parse(ctx, s)
-        }.also { memory[s] = it }
+        }.also { memory[key] = it }
     }
 
+    /** Forget in-memory lists (after switching playlist). Disk caches stay. */
+    fun clearMemory() = memory.clear()
+
+    /** Deletes the cached lists of the active playlist. */
     fun clear(ctx: Context) {
         memory.clear()
         dir(ctx).deleteRecursively()
+    }
+
+    /** Deletes the cached lists of any playlist (used when a playlist is removed). */
+    fun deleteFor(ctx: Context, playlistId: String) {
+        memory.clear()
+        File(ctx.filesDir, "catalog/$playlistId").deleteRecursively()
     }
 
     private fun download(ctx: Context, s: Section) {
@@ -101,6 +115,7 @@ object Catalog {
                         categoryId = m["category_id"].orEmpty(),
                         rating = m["rating"]?.takeIf { it.isNotBlank() && it != "0" },
                         ext = m["container_extension"].orEmpty(),
+                        added = m["added"]?.toLongOrNull() ?: 0L,
                     )
                 )
             }
@@ -114,6 +129,7 @@ object Catalog {
                         categoryId = m["category_id"].orEmpty(),
                         rating = m["rating"]?.takeIf { it.isNotBlank() && it != "0" },
                         year = (m["releaseDate"] ?: m["release_date"])?.take(4),
+                        added = m["last_modified"]?.toLongOrNull() ?: 0L,
                     )
                 )
             }
@@ -123,8 +139,8 @@ object Catalog {
     }
 
     private val LIVE_KEYS = setOf("num", "name", "stream_id", "stream_icon", "epg_channel_id", "category_id")
-    private val MOVIE_KEYS = setOf("name", "stream_id", "stream_icon", "rating", "category_id", "container_extension")
-    private val SERIES_KEYS = setOf("series_id", "name", "cover", "rating", "category_id", "releaseDate", "release_date")
+    private val MOVIE_KEYS = setOf("name", "stream_id", "stream_icon", "rating", "category_id", "container_extension", "added")
+    private val SERIES_KEYS = setOf("series_id", "name", "cover", "rating", "category_id", "releaseDate", "release_date", "last_modified")
 
     /**
      * Streams a (possibly huge) JSON array of objects without loading it all into memory.

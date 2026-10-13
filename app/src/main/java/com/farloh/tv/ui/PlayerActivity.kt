@@ -1,6 +1,12 @@
 package com.farloh.tv.ui
 
+import android.app.PictureInPictureParams
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
+import android.util.Rational
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
@@ -24,7 +30,10 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
@@ -149,6 +158,10 @@ class PlayerActivity : BaseActivity() {
             vodTop.visibility = if (!isLive && visibility == View.VISIBLE) View.VISIBLE else View.GONE
         })
         findViewById<View>(R.id.vodExternal).setOnClickListener { openExternal() }
+        findViewById<View>(R.id.vodPip).apply {
+            visibility = if (pipSupported() && store.pipEnabled) View.VISIBLE else View.GONE
+            setOnClickListener { enterPip() }
+        }
 
         if (isLive) {
             playerView.useController = false
@@ -168,6 +181,10 @@ class PlayerActivity : BaseActivity() {
             findViewById<View>(R.id.btnSubs).setOnClickListener { trackDialog(C.TRACK_TYPE_TEXT, "Subtitles") }
             findViewById<View>(R.id.btnExternal).setOnClickListener { openExternal() }
             btnFav.setOnClickListener { toggleFavorite() }
+            findViewById<View>(R.id.btnPip).apply {
+                visibility = if (pipSupported() && store.pipEnabled) View.VISIBLE else View.GONE
+                setOnClickListener { enterPip() }
+            }
         } else {
             playerView.useController = true
             tapLayer.visibility = View.GONE
@@ -218,20 +235,120 @@ class PlayerActivity : BaseActivity() {
             DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
         )
         val mediaSources = DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http), extractors)
-        val renderers = DefaultRenderersFactory(this).setEnableDecoderFallback(true)
+        val renderers = buildRenderers()
         val audio = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
             .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
             .build()
         val exo = ExoPlayer.Builder(this, renderers)
             .setMediaSourceFactory(mediaSources)
+            .setLoadControl(buildLoadControl())
             .setAudioAttributes(audio, true)
             .setHandleAudioBecomingNoisy(true)
             .build()
+        exo.trackSelectionParameters = subtitlePreferences(exo)
         exo.addListener(listener)
         exo.playWhenReady = true
         playerView.player = exo
         player = exo
+    }
+
+    /**
+     * Decoder modes (Settings → Player):
+     *  HW  – hardware decoders only.
+     *  HW+ – hardware first, falls back to software, plus FFmpeg audio (AC3/E-AC3/DTS/TrueHD) when the device can't.
+     *  SW  – software decoders first (Android's built-in software video decoders + FFmpeg audio).
+     */
+    private fun buildRenderers(): DefaultRenderersFactory {
+        val mode = store.decoderMode
+        val selector = MediaCodecSelector { mimeType, secure, tunneling ->
+            val all = MediaCodecUtil.getDecoderInfos(mimeType, secure, tunneling)
+            when (mode) {
+                "sw" -> all.sortedBy { if (it.softwareOnly) 0 else 1 }
+                "hw" -> all.filter { !it.softwareOnly }.ifEmpty { all }
+                else -> all
+            }
+        }
+        return DefaultRenderersFactory(this)
+            .setMediaCodecSelector(selector)
+            .setEnableDecoderFallback(mode != "hw")
+            .setExtensionRendererMode(
+                when (mode) {
+                    "hw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
+                    "sw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+                    else -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
+                }
+            )
+    }
+
+    /** Buffer size (Settings → Player). Bigger = fewer stalls on shaky connections, slower to start. */
+    private fun buildLoadControl(): DefaultLoadControl {
+        val b = DefaultLoadControl.Builder()
+        when (store.bufferSize) {
+            "small" -> b.setBufferDurationsMs(5_000, 15_000, 1_000, 2_000)
+            "large" -> b.setBufferDurationsMs(30_000, 90_000, 2_500, 5_000)
+                .setTargetBufferBytes(64 * 1024 * 1024).setPrioritizeTimeOverSizeThresholds(true)
+            "xl" -> b.setBufferDurationsMs(60_000, 180_000, 2_500, 5_000)
+                .setTargetBufferBytes(100 * 1024 * 1024).setPrioritizeTimeOverSizeThresholds(true)
+            else -> b.setBufferDurationsMs(15_000, 50_000, 1_500, 3_000)
+        }
+        return b.build()
+    }
+
+    /** Subtitles (Settings → General): auto = only tracks the stream marks as default/forced. */
+    private fun subtitlePreferences(exo: ExoPlayer) = exo.trackSelectionParameters.buildUpon().apply {
+        val lang = store.subtitleLanguage.ifBlank { java.util.Locale.getDefault().language }
+        when (store.subtitleMode) {
+            "off" -> setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            "on" -> setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .setPreferredTextLanguage(lang)
+                .setSelectUndeterminedTextLanguage(true)
+            else -> setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+        }
+    }.build()
+
+    // ---------------- Picture-in-picture ----------------
+
+    private fun pipSupported(): Boolean =
+        Build.VERSION.SDK_INT >= 26 && packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+
+    private fun enterPip(): Boolean {
+        if (!pipSupported() || Build.VERSION.SDK_INT < 26) return false
+        return try {
+            enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build())
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (store.pipEnabled && player?.isPlaying == true) enterPip()
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (isInPictureInPictureMode) {
+            hideInfo()
+            hidePanel()
+            vodTop.visibility = View.GONE
+            playerView.useController = false
+        } else {
+            playerView.useController = !isLive
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // A new stream was picked while this player was open (e.g. from picture-in-picture).
+        savePosition()
+        items = PlayQueue.items
+        index = PlayQueue.index.coerceIn(0, (items.size - 1).coerceAtLeast(0))
+        if (items.isEmpty()) { finish(); return }
+        playerView.useController = !isLive
+        tapLayer.visibility = if (isLive) View.VISIBLE else View.GONE
+        channelAdapter.submit(emptyList())
+        if (player != null) playCurrent(resume = PlayQueue.resume)
     }
 
     private fun mediaItem(p: Playable): MediaItem {
@@ -251,6 +368,7 @@ class PlayerActivity : BaseActivity() {
         exo.prepare()
         exo.play()
         if (isLive) {
+            store.addToHistory(p.id)
             nowNext = emptyList()
             showInfo(focusButtons = false)
             loadEpg()
@@ -440,6 +558,7 @@ class PlayerActivity : BaseActivity() {
     // ---------------- Remote control ----------------
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (Build.VERSION.SDK_INT >= 24 && isInPictureInPictureMode) return super.dispatchKeyEvent(event)
         if (!isLive) {
             if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_BACK &&
                 playerView.isControllerFullyVisible

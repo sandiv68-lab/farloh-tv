@@ -16,27 +16,37 @@ import androidx.lifecycle.lifecycleScope
 import com.farloh.tv.R
 import com.farloh.tv.data.Account
 import com.farloh.tv.data.Catalog
+import com.farloh.tv.data.Store
 import com.farloh.tv.data.Xtream
 import com.farloh.tv.net.Net
 import kotlinx.coroutines.launch
 
+/** First sign-in, or adding another playlist (EXTRA_ADD). */
 class LoginActivity : BaseActivity() {
 
+    companion object {
+        const val EXTRA_ADD = "add_playlist"
+    }
+
+    private lateinit var playlistName: EditText
     private lateinit var server: EditText
     private lateinit var username: EditText
     private lateinit var password: EditText
     private lateinit var signIn: Button
     private lateinit var progress: ProgressBar
     private lateinit var error: TextView
+    private var addMode = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (store.account != null) {
+        addMode = intent.getBooleanExtra(EXTRA_ADD, false)
+        if (!addMode && store.account != null) {
             openHome()
             return
         }
         setContentView(R.layout.activity_login)
 
+        playlistName = findViewById(R.id.playlistName)
         server = findViewById(R.id.server)
         username = findViewById(R.id.username)
         password = findViewById(R.id.password)
@@ -44,9 +54,17 @@ class LoginActivity : BaseActivity() {
         progress = findViewById(R.id.progress)
         error = findViewById(R.id.error)
 
-        // Fit the form on narrow phones.
         val form = findViewById<LinearLayout>(R.id.form)
         form.layoutParams = form.layoutParams.apply { width = minOf(dp(460), resources.displayMetrics.widthPixels - dp(48)) }
+
+        if (addMode) {
+            findViewById<TextView>(R.id.heading).text = "Add a playlist"
+            signIn.text = "Add playlist"
+            findViewById<Button>(R.id.cancel).apply {
+                visibility = View.VISIBLE
+                setOnClickListener { finish() }
+            }
+        }
 
         findViewById<CheckBox>(R.id.showPassword).setOnCheckedChangeListener { _, show ->
             password.transformationMethod =
@@ -57,7 +75,7 @@ class LoginActivity : BaseActivity() {
             if (actionId == EditorInfo.IME_ACTION_DONE) { signIn.requestFocus(); attempt(); true } else false
         }
         signIn.setOnClickListener { attempt() }
-        server.requestFocus()
+        (if (addMode) playlistName else server).requestFocus()
     }
 
     private fun attempt() {
@@ -69,6 +87,7 @@ class LoginActivity : BaseActivity() {
             return
         }
         val account = Account(url, user, pass)
+        val name = playlistName.text.toString().trim().ifEmpty { Store.defaultName(account) }
         setBusy(true)
         lifecycleScope.launch {
             try {
@@ -76,14 +95,23 @@ class LoginActivity : BaseActivity() {
                 if (!result.ok) {
                     showError(result.message ?: "Login failed.")
                 } else {
-                    val previous = store.account
-                    if (previous == null || previous.server != account.server || previous.username != account.username) {
-                        Catalog.clear(this@LoginActivity)
+                    // Same server + username already saved: update it instead of adding a duplicate.
+                    val existing = store.playlists().firstOrNull {
+                        it.account.server.equals(account.server, true) && it.account.username == account.username
+                    }
+                    if (existing != null) {
+                        store.updatePlaylist(existing.id, name = name, account = account)
+                        store.setActive(existing.id)
+                    } else {
+                        store.addPlaylist(name, account)
                         store.initialLoadDone = false
                     }
-                    store.account = account
                     store.userInfo = result.userInfo
-                    openHome()
+                    Catalog.clearMemory()
+                    Xtream.clearCache()
+                    startActivity(Intent(this@LoginActivity, HomeActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+                    finish()
                 }
             } catch (e: Exception) {
                 showError(Net.friendlyError(e))

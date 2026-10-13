@@ -43,6 +43,7 @@ class BrowseActivity : BaseActivity() {
         const val EXTRA_SECTION = "section"
         private const val ALL = "__all"
         private const val FAV = "__fav"
+        private const val RECENT = "__recent"
     }
 
     private data class CatRow(val id: String, val name: String, val count: Int)
@@ -71,6 +72,10 @@ class BrowseActivity : BaseActivity() {
     private var query = ""
     private var wide = false
     private var favs: Set<String> = emptySet()
+    private var hidden: Set<String> = emptySet()
+    private var visible: List<CatalogItem> = emptyList()
+    private var recent: List<CatalogItem> = emptyList()
+    private var stateSignature = ""
 
     private var epgJob: Job? = null
     private var catJob: Job? = null
@@ -91,7 +96,7 @@ class BrowseActivity : BaseActivity() {
         section = runCatching { Section.valueOf(intent.getStringExtra(EXTRA_SECTION) ?: "") }.getOrDefault(Section.LIVE)
         account = requireAccount() ?: return
         setContentView(R.layout.activity_browse)
-        wide = screenWidthDp >= 720
+        wide = wideLayout
         favs = store.favorites()
 
         updated = findViewById(R.id.updated)
@@ -122,7 +127,8 @@ class BrowseActivity : BaseActivity() {
         categoriesRv.itemAnimator = null
         categoriesRv.adapter = catAdapter
         catAdapter.onClick = { row, _ -> selectCategory(row.id) }
-        catAdapter.onFocus = { row, _ ->
+        catAdapter.onFocus = onFocus@{ row, _ ->
+            if (!tvMode) return@onFocus
             catJob?.cancel()
             catJob = lifecycleScope.launch { delay(350); selectCategory(row.id) }
         }
@@ -153,14 +159,25 @@ class BrowseActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (section == Section.LIVE && data != null) {
-            val newFavs = store.favorites()
-            if (newFavs != favs) {
-                favs = newFavs
-                render(keepScroll = true)
-            }
+        // Re-draw only if favourites, history or parental settings changed while away.
+        if (data != null && signature() != stateSignature) {
+            favs = store.favorites()
+            render(keepScroll = true)
         }
         updated.text = Fmt.ago(Catalog.lastUpdated(this, section))
+    }
+
+    private fun signature(): String = listOf(
+        store.favorites().hashCode(),
+        if (section == Section.LIVE) store.history().hashCode() else 0,
+        store.hiddenCategories(section).hashCode(),
+        store.recentLimit, store.historyLimit,
+    ).joinToString("|")
+
+    private fun addedOf(item: CatalogItem): Long = when (item) {
+        is Movie -> item.added
+        is Show -> item.added
+        else -> 0L
     }
 
     private fun setupItems() {
@@ -228,12 +245,30 @@ class BrowseActivity : BaseActivity() {
 
     private fun render(keepScroll: Boolean) {
         val d = data ?: return
+        stateSignature = signature()
         updated.text = Fmt.ago(d.updatedAt)
+        hidden = store.hiddenCategories(section)
+        visible = if (hidden.isEmpty()) d.items else d.items.filter { it.categoryId !in hidden }
+        recent = if (section == Section.LIVE) {
+            if (store.historyLimit > 0) {
+                val byId = visible.associateBy { it.id }
+                store.history().mapNotNull { byId[it] }.take(store.historyLimit)
+            } else emptyList()
+        } else {
+            if (store.recentLimit > 0) visible.filter { addedOf(it) > 0 }.sortedByDescending { addedOf(it) }.take(store.recentLimit)
+            else emptyList()
+        }
         val counts = d.byCategory
         val rows = ArrayList<CatRow>()
-        rows.add(CatRow(ALL, "All", d.items.size))
-        if (section == Section.LIVE) rows.add(CatRow(FAV, "★  Favourites", d.items.count { it.id in favs }))
+        rows.add(CatRow(ALL, "All", visible.size))
+        if (section == Section.LIVE) {
+            rows.add(CatRow(FAV, "★  Favourites", visible.count { it.id in favs }))
+            if (store.historyLimit > 0) rows.add(CatRow(RECENT, "Recently watched", recent.size))
+        } else if (store.recentLimit > 0) {
+            rows.add(CatRow(RECENT, "Recently added", recent.size))
+        }
         for (c in d.categories) {
+            if (c.id in hidden) continue
             val n = counts[c.id]?.size ?: 0
             if (n > 0) rows.add(CatRow(c.id, c.name, n))
         }
@@ -246,9 +281,10 @@ class BrowseActivity : BaseActivity() {
     private fun applyFilter(keepScroll: Boolean = false) {
         val d = data ?: return
         val list: List<CatalogItem> = when {
-            query.isNotEmpty() -> d.items.filter { it.name.contains(query, ignoreCase = true) }
-            currentCat == ALL -> d.items
-            currentCat == FAV -> d.items.filter { it.id in favs }
+            query.isNotEmpty() -> visible.filter { it.name.contains(query, ignoreCase = true) }
+            currentCat == ALL -> visible
+            currentCat == FAV -> visible.filter { it.id in favs }
+            currentCat == RECENT -> recent
             else -> d.byCategory[currentCat].orEmpty()
         }
         itemAdapter.submit(list)
@@ -264,6 +300,8 @@ class BrowseActivity : BaseActivity() {
             empty.text = when {
                 query.isNotEmpty() -> "Nothing matches \"$query\"."
                 currentCat == FAV -> "No favourites yet.\nHold OK (or long-press) on a channel to add it."
+                currentCat == RECENT && section == Section.LIVE -> "Channels you watch will appear here."
+                currentCat == RECENT -> "Nothing recently added."
                 d.items.isEmpty() -> "The server returned an empty list.\nPress Refresh to try again."
                 else -> "Nothing in $catName."
             }

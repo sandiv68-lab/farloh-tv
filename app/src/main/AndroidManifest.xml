@@ -45,6 +45,7 @@
         </activity>
 
         <activity android:name=".ui.HomeActivity" android:exported="false" />
+        <activity android:name=".ui.SettingsActivity" android:exported="false" />
         <activity android:name=".ui.BrowseActivity" android:exported="false" android:windowSoftInputMode="adjustResize|stateHidden" />
         <activity android:name=".ui.MovieDetailActivity" android:exported="false" />
         <activity android:name=".ui.SeriesDetailActivity" android:exported="false" />
@@ -54,6 +55,8 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode"
             android:launchMode="singleTop"
             android:screenOrientation="sensorLandscape"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
             android:theme="@style/Theme.Farloh.Player" />
     </application>
 </manifest>

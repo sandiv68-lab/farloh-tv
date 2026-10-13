@@ -44,6 +44,8 @@ object Xtream {
     // ---------------- EPG ----------------
 
     private val epgCache = LruCache<String, Pair<Long, List<Programme>>>(150)
+
+    fun clearCache() = epgCache.evictAll()
     private const val EPG_TTL = 10 * 60 * 1000L
 
     /** [full] = today's schedule; otherwise just now / next. */

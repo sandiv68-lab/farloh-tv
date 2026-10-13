@@ -16,6 +16,8 @@ class FarlohApp : Application(), ImageLoaderFactory {
         // Installs the bundled root certificates on old Android versions (5.x / 6.x)
         // that are missing the current Let's Encrypt / Google / DigiCert roots.
         Net.init(this)
+        // Version 1.0 kept lists directly in files/catalog; they now live in one folder per playlist.
+        filesDir.resolve("catalog").listFiles()?.filter { it.isFile }?.forEach { it.delete() }
     }
 
     override fun newImageLoader(): ImageLoader =

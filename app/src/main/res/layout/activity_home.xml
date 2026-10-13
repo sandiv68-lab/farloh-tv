@@ -14,9 +14,14 @@
             <ImageView android:layout_width="wrap_content" android:layout_height="72dp" android:adjustViewBounds="true"
                 android:src="@drawable/farloh_logo" android:contentDescription="@string/app_name" />
             <TextView android:id="@+id/account" android:layout_width="0dp" android:layout_height="wrap_content"
-                android:layout_weight="1" android:layout_marginStart="12dp" android:gravity="end"
-                android:textColor="@color/text2" android:textSize="13sp" />
-            <ImageButton android:id="@+id/settings" style="@style/IconBtn" android:layout_marginStart="12dp"
+                android:layout_weight="1" android:layout_marginStart="12dp" android:ellipsize="end" android:gravity="end"
+                android:maxLines="2" android:textColor="@color/text2" android:textSize="13sp" />
+            <Button android:id="@+id/playlist" style="@style/Btn" android:layout_marginStart="12dp"
+                android:drawableStart="@drawable/ic_playlist" android:drawablePadding="8dp" android:ellipsize="end"
+                android:maxWidth="220dp" android:singleLine="true" android:text="Playlist" />
+            <ImageButton android:id="@+id/downloads" style="@style/IconBtn" android:layout_marginStart="8dp"
+                android:src="@drawable/ic_download" android:contentDescription="Downloads" />
+            <ImageButton android:id="@+id/settings" style="@style/IconBtn" android:layout_marginStart="8dp"
                 android:src="@drawable/ic_settings" android:contentDescription="Settings" />
         </LinearLayout>
 

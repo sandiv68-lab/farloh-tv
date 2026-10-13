@@ -17,6 +17,7 @@
         <TextView android:id="@+id/vodTitle" android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:ellipsize="end" android:maxLines="2" android:textColor="@color/text"
             android:textSize="20sp" android:textStyle="bold" />
+        <Button android:id="@+id/vodPip" style="@style/Btn" android:layout_marginEnd="8dp" android:text="PiP" />
         <Button android:id="@+id/vodExternal" style="@style/Btn" android:drawableStart="@drawable/ic_external"
             android:drawablePadding="8dp" android:text="MX / VLC" />
     </LinearLayout>
@@ -57,6 +58,7 @@
                 <Button android:id="@+id/btnAudio" style="@style/Btn" android:layout_marginStart="8dp" android:text="Audio" />
                 <Button android:id="@+id/btnSubs" style="@style/Btn" android:layout_marginStart="8dp" android:text="Subtitles" />
                 <Button android:id="@+id/btnFav" style="@style/Btn" android:layout_marginStart="8dp" android:text="☆  Favourite" />
+                <Button android:id="@+id/btnPip" style="@style/Btn" android:layout_marginStart="8dp" android:text="PiP" />
                 <Button android:id="@+id/btnExternal" style="@style/Btn" android:layout_marginStart="8dp"
                     android:drawableStart="@drawable/ic_external" android:drawablePadding="8dp" android:text="MX / VLC" />
             </LinearLayout>

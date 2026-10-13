@@ -28,8 +28,8 @@ android {
         applicationId = "com.farloh.tv"
         minSdk = 21
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
         vectorDrawables.useSupportLibrary = true
     }
 
@@ -88,6 +88,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:$media3")
     implementation("androidx.media3:media3-exoplayer-hls:$media3")
     implementation("androidx.media3:media3-ui:$media3")
+    // FFmpeg software audio decoders (AC3, E-AC3, DTS, TrueHD...) for the HW+ / SW decoder modes.
+    implementation("org.jellyfin.media3:media3-ffmpeg-decoder:$media3+1")
     implementation("io.coil-kt:coil:2.7.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

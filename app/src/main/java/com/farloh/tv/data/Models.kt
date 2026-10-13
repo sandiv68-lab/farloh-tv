@@ -71,6 +71,7 @@ data class Movie(
     override val categoryId: String,
     val rating: String?,
     val ext: String,
+    val added: Long = 0L,
 ) : CatalogItem
 
 data class Show(
@@ -80,6 +81,7 @@ data class Show(
     override val categoryId: String,
     val rating: String?,
     val year: String?,
+    val added: Long = 0L,
 ) : CatalogItem
 
 data class Programme(val title: String, val description: String, val start: Long, val end: Long) {

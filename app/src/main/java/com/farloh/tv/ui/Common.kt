@@ -30,11 +30,28 @@ open class BaseActivity : AppCompatActivity() {
 
     val store: Store by lazy { Store.get(this) }
 
-    val isTv: Boolean by lazy {
+    /** What the device says it is. */
+    val detectedTv: Boolean by lazy {
         val ui = getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
         ui?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
             packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
     }
+
+    /** TV (remote control) behaviour: Settings → Device mode can force it on or off. */
+    val tvMode: Boolean
+        get() = when (store.deviceMode) {
+            "tv" -> true
+            "mobile" -> false
+            else -> detectedTv
+        }
+
+    /** Side-by-side layout (category column + guide) vs. compact phone layout. */
+    val wideLayout: Boolean
+        get() = when (store.deviceMode) {
+            "tv" -> true
+            "mobile" -> false
+            else -> detectedTv || screenWidthDp >= 720
+        }
 
     val screenWidthDp: Int get() = resources.configuration.screenWidthDp
 

@@ -12,7 +12,9 @@ import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import com.farloh.tv.R
 import com.farloh.tv.data.Catalog
+import com.farloh.tv.data.Playlist
 import com.farloh.tv.data.Section
+import com.farloh.tv.data.Xtream
 import com.farloh.tv.net.Net
 import kotlinx.coroutines.launch
 
@@ -30,6 +32,7 @@ class HomeActivity : BaseActivity() {
 
     private val tiles = HashMap<Section, Tile>()
     private val busy = HashSet<Section>()
+    private lateinit var playlistButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -53,7 +56,7 @@ class HomeActivity : BaseActivity() {
         }
 
         // Stack the tiles vertically on narrow phone screens.
-        if (screenWidthDp < 600) {
+        if (store.deviceMode != "tv" && screenWidthDp < 600) {
             val container = findViewById<LinearLayout>(R.id.tiles)
             container.orientation = LinearLayout.VERTICAL
             for (tile in tiles.values) {
@@ -63,10 +66,13 @@ class HomeActivity : BaseActivity() {
                 tile.icon.layoutParams = tile.icon.layoutParams.apply { width = dp(36); height = dp(36) }
                 tile.title.textSize = 20f
             }
+            findViewById<View>(R.id.account).visibility = View.GONE
         }
 
-        findViewById<View>(R.id.settings).setOnClickListener { showSettings() }
-        showAccount()
+        playlistButton = findViewById(R.id.playlist)
+        playlistButton.setOnClickListener { showPlaylists() }
+        findViewById<View>(R.id.settings).setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
+        findViewById<View>(R.id.downloads).setOnClickListener { openDownloads() }
         tiles.getValue(Section.LIVE).card.requestFocus()
 
         if (!store.initialLoadDone) firstLoad()
@@ -74,10 +80,14 @@ class HomeActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (tiles.isNotEmpty()) Section.values().forEach { updateTile(it) }
+        if (tiles.isEmpty()) return
+        if (store.account == null) { requireAccount(); return }
+        showHeader()
+        Section.values().forEach { updateTile(it) }
     }
 
-    private fun showAccount() {
+    private fun showHeader() {
+        playlistButton.text = store.activePlaylist?.name ?: "Playlist"
         val info = store.userInfo
         val exp = info?.optString("exp_date")?.toLongOrNull()
         val expiry = if (exp != null && exp > 0) "Expires ${Fmt.date(exp * 1000)}" else "No expiry date"
@@ -106,6 +116,11 @@ class HomeActivity : BaseActivity() {
         startActivity(Intent(this, BrowseActivity::class.java).putExtra(BrowseActivity.EXTRA_SECTION, section.name))
     }
 
+    private fun openDownloads() {
+        val cls = runCatching { Class.forName("com.farloh.tv.ui.DownloadsActivity") }.getOrNull()
+        if (cls == null) toast("Downloads are coming in the next update") else startActivity(Intent(this, cls))
+    }
+
     private fun refresh(section: Section, quiet: Boolean = false) {
         if (section in busy) return
         busy.add(section)
@@ -123,7 +138,7 @@ class HomeActivity : BaseActivity() {
         }
     }
 
-    /** After signing in, fetch all three playlists once. After that, only manual refresh. */
+    /** After adding a playlist, fetch its three lists once. After that, only manual refresh. */
     private fun firstLoad() {
         Section.values().forEach { busy.add(it); updateTile(it) }
         lifecycleScope.launch {
@@ -143,84 +158,71 @@ class HomeActivity : BaseActivity() {
         }
     }
 
-    private fun showSettings() {
-        val format = if (store.liveFormat == "m3u8") "HLS (.m3u8)" else "MPEG-TS (.ts)"
-        val player = if (store.externalByDefault) "External (MX Player / VLC)" else "Built-in player"
-        val options = arrayOf(
-            "Live TV stream format: $format",
-            "Default player: $player",
-            "Account info",
-            "Clear saved playlists",
-            "Log out",
-        )
+    // ---------------- Playlists ----------------
+
+    private fun showPlaylists() {
+        val all = store.playlists()
+        val activeId = store.activePlaylist?.id
+        val labels = all.map { (if (it.id == activeId) "✓  " else "     ") + it.name + "   (${it.account.username})" } +
+            listOf("+  Add playlist", "✎  Rename or remove…")
         AlertDialog.Builder(this)
-            .setTitle("Settings")
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> chooseFormat()
-                    1 -> choosePlayer()
-                    2 -> showAccountInfo()
-                    3 -> confirm("Clear saved playlists?", "Live TV, Movies and TV Shows will download again next time you open them.") {
-                        Catalog.clear(this)
-                        Section.values().forEach { store.setItemCount(it, -1); updateTile(it) }
-                    }
-                    4 -> confirm("Log out?", "Your saved login and playlists will be removed from this device.") { logout() }
+            .setTitle("Playlists")
+            .setItems(labels.toTypedArray()) { _, which ->
+                when {
+                    which < all.size -> if (all[which].id != activeId) switchTo(all[which])
+                    which == all.size -> startActivity(Intent(this, LoginActivity::class.java).putExtra(LoginActivity.EXTRA_ADD, true))
+                    else -> pickPlaylistToEdit()
                 }
             }
             .setNegativeButton("Close", null)
             .show()
     }
 
-    private fun chooseFormat() {
-        val values = arrayOf("ts", "m3u8")
+    private fun pickPlaylistToEdit() {
+        val all = store.playlists()
         AlertDialog.Builder(this)
-            .setTitle("Live TV stream format")
-            .setSingleChoiceItems(arrayOf("MPEG-TS (.ts) – recommended", "HLS (.m3u8) – try if channels stutter or won't start"),
-                values.indexOf(store.liveFormat).coerceAtLeast(0)) { d, which ->
-                store.liveFormat = values[which]
-                d.dismiss()
-            }
-            .show()
-    }
-
-    private fun choosePlayer() {
-        AlertDialog.Builder(this)
-            .setTitle("Default player")
-            .setSingleChoiceItems(arrayOf("Built-in player", "External (MX Player / VLC)"),
-                if (store.externalByDefault) 1 else 0) { d, which ->
-                store.externalByDefault = which == 1
-                d.dismiss()
-            }
-            .show()
-    }
-
-    private fun showAccountInfo() {
-        val acc = store.account ?: return
-        val info = store.userInfo
-        fun v(k: String) = info?.optString(k)?.takeIf { it.isNotBlank() && it != "null" } ?: "–"
-        val exp = info?.optString("exp_date")?.toLongOrNull()
-        val text = buildString {
-            appendLine("Server: ${acc.server}")
-            appendLine("Username: ${acc.username}")
-            appendLine("Status: ${v("status")}")
-            appendLine("Expires: ${if (exp != null && exp > 0) Fmt.date(exp * 1000) else "No expiry date"}")
-            appendLine("Connections: ${v("active_cons")} active / ${v("max_connections")} allowed")
-            append("Trial: ${if (v("is_trial") == "1") "Yes" else "No"}")
-        }
-        AlertDialog.Builder(this).setTitle("Account").setMessage(text).setPositiveButton("OK", null).show()
-    }
-
-    private fun confirm(title: String, message: String, action: () -> Unit) {
-        AlertDialog.Builder(this).setTitle(title).setMessage(message)
-            .setPositiveButton("Yes") { _, _ -> action() }
+            .setTitle("Rename or remove")
+            .setItems(all.map { it.name }.toTypedArray()) { _, which -> editPlaylist(all[which]) }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
-    private fun logout() {
-        Catalog.clear(this)
-        store.clearAll()
-        startActivity(Intent(this, LoginActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+    private fun editPlaylist(p: Playlist) {
+        AlertDialog.Builder(this)
+            .setTitle(p.name)
+            .setItems(arrayOf("Rename", "Remove from this device")) { _, which ->
+                if (which == 0) {
+                    Dialogs.input(this, "Playlist name", p.name) { name ->
+                        store.updatePlaylist(p.id, name = name.trim().ifEmpty { p.name })
+                        showHeader()
+                    }
+                } else {
+                    Dialogs.confirm(this, "Remove ${p.name}?",
+                        "Its login, favourites and saved lists will be deleted from this device.", "Remove") { removePlaylist(p) }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun removePlaylist(p: Playlist) {
+        val wasActive = p.id == store.activePlaylist?.id
+        Catalog.deleteFor(this, p.id)
+        val next = store.removePlaylist(p.id)
+        if (next == null || wasActive) restartHome() else showHeader()
+    }
+
+    private fun switchTo(p: Playlist) {
+        store.setActive(p.id)
+        toast("Switched to ${p.name}")
+        restartHome()
+    }
+
+    private fun restartHome() {
+        Catalog.clearMemory()
+        Xtream.clearCache()
+        val target = if (store.account == null) LoginActivity::class.java else HomeActivity::class.java
+        startActivity(Intent(this, target).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         finish()
     }
 }
