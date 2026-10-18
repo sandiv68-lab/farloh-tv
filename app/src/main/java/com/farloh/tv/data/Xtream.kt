@@ -46,13 +46,14 @@ object Xtream {
     private val epgCache = LruCache<String, Pair<Long, List<Programme>>>(150)
 
     fun clearCache() = epgCache.evictAll()
-    private const val EPG_TTL = 10 * 60 * 1000L
+    /** How long a channel's guide is remembered (Settings → General → TV guide refresh). */
+    @Volatile var epgTtlMs = 10 * 60 * 1000L
 
     /** [full] = today's schedule; otherwise just now / next. */
     suspend fun epg(account: Account, streamId: String, full: Boolean): List<Programme> = withContext(Dispatchers.IO) {
         val key = "$streamId|$full"
         val now = System.currentTimeMillis()
-        epgCache.get(key)?.let { if (now - it.first < EPG_TTL) return@withContext it.second }
+        epgCache.get(key)?.let { if (now - it.first < epgTtlMs) return@withContext it.second }
         val url = if (full) account.api("get_simple_data_table", "&stream_id=$streamId")
                   else account.api("get_short_epg", "&stream_id=$streamId&limit=6")
         val list = parseEpg(Net.getString(url))

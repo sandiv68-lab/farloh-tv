@@ -224,6 +224,9 @@ class Store private constructor(context: Context) {
     /** "auto", "mobile" or "tv". */
     var deviceMode: String by StringPref("device_mode", "auto")
 
+    /** Minutes a channel's TV guide is remembered before asking the server again. */
+    var epgMinutes: Int by IntPref("epg_minutes", 10)
+
     /** Maximum space for cached pictures (channel logos, posters), in MB. */
     var imageCacheMb: Int by IntPref("image_cache_mb", 150)
 

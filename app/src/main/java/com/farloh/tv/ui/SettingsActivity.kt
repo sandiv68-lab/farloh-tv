@@ -198,6 +198,15 @@ class SettingsActivity : BaseActivity() {
                 refresh()
             }
         }
+        r += Row.Item("TV guide refresh", "Every ${store.epgMinutes} min",
+            "How long a channel's guide is remembered. Longer = faster browsing, fewer server requests") {
+            Dialogs.choose(this, "TV guide refresh", EPG_MINUTES.map { "Every $it minutes" + if (it == 10) " (default)" else "" },
+                EPG_MINUTES, store.epgMinutes) {
+                store.epgMinutes = it
+                Xtream.epgTtlMs = it * 60_000L
+                refresh()
+            }
+        }
         r += Row.Item("Live TV stream format", if (store.liveFormat == "m3u8") "HLS (.m3u8)" else "MPEG-TS (.ts)",
             "Try HLS if channels stutter or won't start") {
             Dialogs.choose(this, "Live TV stream format", listOf("MPEG-TS (.ts) – recommended", "HLS (.m3u8)"),
@@ -381,7 +390,7 @@ class SettingsActivity : BaseActivity() {
         r += Row.Item("Update files", mb(sz?.updates), "Removed automatically after an update installs") {
             lifecycleScope.launch { com.farloh.tv.data.StorageInfo.clearUpdates(this@SettingsActivity); remeasure("Update files cleared") }
         }
-        r += Row.Item("TV guide", "Memory only", "Kept for 10 minutes per channel. Tap to clear") {
+        r += Row.Item("TV guide", "Memory only", "Kept for ${store.epgMinutes} minutes per channel. Tap to clear") {
             Xtream.clearCache(); toast("TV guide cleared")
         }
         r += Row.Item("Offline downloads", mb(sz?.downloads), "Manage them on the Downloads screen") {
@@ -594,6 +603,7 @@ class SettingsActivity : BaseActivity() {
         private val BUFFERS = listOf("small" to "Small (fast start)", "normal" to "Normal", "large" to "Large", "xl" to "Very large")
         private val RECENT_LIMITS = listOf(0, 25, 50, 100, 200)
         private val IMAGE_CACHE = listOf(50, 100, 150, 300, 500)
+        private val EPG_MINUTES = listOf(10, 30, 60)
         private val ZOOMS = listOf(60, 70, 80, 90, 100, 110, 125)
         private val TEXT_ZOOMS = listOf(0, 80, 90, 100, 115, 130)
         val RESIZES = listOf("fit" to "Fit", "stretch" to "Stretch", "crop" to "Crop (fill screen)", "16:9" to "16:9", "4:3" to "4:3")
