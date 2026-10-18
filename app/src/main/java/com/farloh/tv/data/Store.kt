@@ -224,6 +224,11 @@ class Store private constructor(context: Context) {
     /** "auto", "mobile" or "tv". */
     var deviceMode: String by StringPref("device_mode", "auto")
 
+    /** "system", a preset key from AppDns.PRESETS, or "custom". */
+    var dnsMode: String by StringPref("dns_mode", "system")
+    /** Custom DNS: an IP (e.g. 8.8.8.8) or an https:// DNS-over-HTTPS address. */
+    var dnsCustom: String by StringPref("dns_custom", "")
+
     /** "landscape" (default) or "auto" (follow the phone's rotation). */
     var orientation: String by StringPref("orientation", "landscape")
     /** App size in percent of the device's standard size, ignoring the phone's own display-size setting. */
@@ -242,7 +247,15 @@ class Store private constructor(context: Context) {
     /** "default" (api.opensubtitles.com), "vip" (vip-api.opensubtitles.com) or "custom". */
     var subsServer: String by StringPref("subs_server", "default")
     var subsCustomUrl: String by StringPref("subs_custom_url", "")
-    var subsApiKey: String by StringPref("subs_api_key", "")
+    /** Stored encrypted (older versions saved it as plain text; that still reads fine). */
+    var subsApiKey: String
+        get() {
+            val raw = prefs.getString("subs_api_key", null) ?: return ""
+            return if (raw.startsWith("g1:") || raw.startsWith("p1:")) Crypto.decrypt(raw) ?: "" else raw
+        }
+        set(value) = prefs.edit().apply {
+            if (value.isEmpty()) remove("subs_api_key") else putString("subs_api_key", Crypto.encrypt(value))
+        }.apply()
     var subsUsername: String by StringPref("subs_username", "")
     var subsPassword: String
         get() = prefs.getString("subs_password", null)?.let { Crypto.decrypt(it) } ?: ""

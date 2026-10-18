@@ -15,6 +15,11 @@
         <item name="android:alertDialogTheme">@style/Theme.Farloh.Dialog</item>
     </style>
 
+    <!-- Start-up screen: dark background + logo, no white icon plate. -->
+    <style name="Theme.Farloh.Launch" parent="Theme.Farloh">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
+
     <style name="Theme.Farloh.Dialog" parent="Theme.AppCompat.Dialog.Alert">
         <item name="colorAccent">@color/accent</item>
         <item name="android:windowBackground">@drawable/dialog_bg</item>

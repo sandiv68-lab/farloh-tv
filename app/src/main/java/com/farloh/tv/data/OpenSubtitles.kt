@@ -4,10 +4,13 @@ import com.farloh.tv.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import com.farloh.tv.net.Net
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
 import java.util.Locale
 
@@ -146,17 +149,12 @@ object OpenSubtitles {
         val res = call(store, "POST", "${apiBase(store)}/download", body, useToken = true)
         val link = res.optString("link")
         if (link.isBlank()) throw SubtitleError(res.optString("message").ifBlank { "No download link returned." })
-        val conn = URL(link).openConnection() as HttpURLConnection
-        conn.instanceFollowRedirects = true
-        conn.connectTimeout = 15_000
-        conn.readTimeout = 30_000
-        conn.setRequestProperty("User-Agent", USER_AGENT)
-        try {
-            if (conn.responseCode !in 200..299) throw SubtitleError("Subtitle download failed (HTTP ${conn.responseCode}).")
+        val req = Request.Builder().url(link).header("User-Agent", USER_AGENT).build()
+        Net.client.newCall(req).execute().use { r ->
+            if (!r.isSuccessful) throw SubtitleError("Subtitle download failed (HTTP ${r.code}).")
             dest.parentFile?.mkdirs()
-            conn.inputStream.use { input -> dest.outputStream().use { input.copyTo(it) } }
-        } finally {
-            conn.disconnect()
+            r.body?.byteStream()?.use { input -> dest.outputStream().use { input.copyTo(it) } }
+                ?: throw SubtitleError("Subtitle download was empty.")
         }
         Download(dest, if (res.has("remaining")) res.optInt("remaining") else null)
     }
@@ -174,32 +172,26 @@ object OpenSubtitles {
             .replace(Regex("\\s+"), " ").trim()
 
     /** JSON request with the Api-Key / User-Agent headers kept across redirects. */
+    private val noRedirect by lazy { Net.client.newBuilder().followRedirects(false).followSslRedirects(false).build() }
+
     private fun call(store: Store, method: String, url: String, body: JSONObject?, useToken: Boolean): JSONObject {
-        var current = URL(url)
+        var current = url.toHttpUrl()
         repeat(5) {
-            val conn = current.openConnection() as HttpURLConnection
-            conn.instanceFollowRedirects = false
-            conn.requestMethod = method
-            conn.connectTimeout = 15_000
-            conn.readTimeout = 30_000
-            conn.setRequestProperty("Api-Key", store.subsApiKey.trim())
-            conn.setRequestProperty("User-Agent", USER_AGENT)
-            conn.setRequestProperty("Accept", "application/json")
-            if (useToken) token?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
-            if (body != null) {
-                conn.doOutput = true
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-            }
-            try {
-                val code = conn.responseCode
+            val rb = Request.Builder().url(current)
+                .header("Api-Key", store.subsApiKey.trim())
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/json")
+            if (useToken) token?.let { rb.header("Authorization", "Bearer $it") }
+            if (body != null) rb.method(method, body.toString().toRequestBody("application/json".toMediaType()))
+            else rb.method(method, null)
+            noRedirect.newCall(rb.build()).execute().use { res ->
+                val code = res.code
                 if (code in 300..399) {
-                    val loc = conn.getHeaderField("Location") ?: throw SubtitleError("Bad redirect from subtitle server.")
-                    current = URL(current, loc)
+                    val loc = res.header("Location") ?: throw SubtitleError("Bad redirect from subtitle server.")
+                    current = current.resolve(loc) ?: throw SubtitleError("Bad redirect from subtitle server.")
                     return@repeat
                 }
-                val text = (if (code in 200..299) conn.inputStream else conn.errorStream)
-                    ?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
+                val text = res.body?.string().orEmpty()
                 val json = runCatching { JSONObject(text) }.getOrNull()
                 if (code !in 200..299) {
                     val msg = json?.optString("message")?.takeIf { it.isNotBlank() }
@@ -212,8 +204,6 @@ object OpenSubtitles {
                     })
                 }
                 return json ?: JSONObject()
-            } finally {
-                conn.disconnect()
             }
         }
         throw SubtitleError("Too many redirects from subtitle server.")

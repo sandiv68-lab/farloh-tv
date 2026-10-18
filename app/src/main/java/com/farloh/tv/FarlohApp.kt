@@ -16,21 +16,14 @@ class FarlohApp : Application(), ImageLoaderFactory {
         // Installs the bundled root certificates on old Android versions (5.x / 6.x)
         // that are missing the current Let's Encrypt / Google / DigiCert roots.
         Net.init(this)
+        com.farloh.tv.net.AppDns.init(this)
         // Version 1.0 kept lists directly in files/catalog; they now live in one folder per playlist.
         filesDir.resolve("catalog").listFiles()?.filter { it.isFile }?.forEach { it.delete() }
     }
 
     override fun newImageLoader(): ImageLoader =
         ImageLoader.Builder(this)
-            .okHttpClient {
-                val builder = OkHttpClient.Builder()
-                    .connectTimeout(15, TimeUnit.SECONDS)
-                    .readTimeout(20, TimeUnit.SECONDS)
-                    .followRedirects(true)
-                    .followSslRedirects(true)
-                Net.legacyTls?.let { builder.sslSocketFactory(it.socketFactory, it.trustManager) }
-                builder.build()
-            }
+            .okHttpClient { Net.client.newBuilder().readTimeout(20, TimeUnit.SECONDS).build() }
             .memoryCache { MemoryCache.Builder(this).maxSizePercent(0.15).build() }
             .diskCache {
                 DiskCache.Builder()

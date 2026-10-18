@@ -43,7 +43,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
@@ -255,11 +255,9 @@ class PlayerActivity : BaseActivity() {
     // ---------------- Player ----------------
 
     private fun initializePlayer() {
-        val http = DefaultHttpDataSource.Factory()
+        // Shared client: same DNS setting (Settings → Network), redirects and certificates as the rest of the app.
+        val http = OkHttpDataSource.Factory(Net.client.newBuilder().readTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build())
             .setUserAgent(Net.USER_AGENT)
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(30_000)
         val extractors = DefaultExtractorsFactory().setTsExtractorFlags(
             DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
         )

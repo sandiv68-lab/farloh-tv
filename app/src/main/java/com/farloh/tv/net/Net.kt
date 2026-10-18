@@ -6,10 +6,12 @@ import android.util.Log
 import com.farloh.tv.R
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.TimeUnit
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
 import java.net.ConnectException
-import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
-import java.net.URL
 import java.net.UnknownHostException
 import java.security.KeyStore
 import java.security.cert.CertificateException
@@ -61,31 +63,38 @@ object Net {
         return tmf.trustManagers.filterIsInstance<X509TrustManager>().first()
     }
 
-    /** Opens a GET connection, following redirects (including http <-> https) up to 5 times. */
-    fun open(url: String, readTimeoutMs: Int = 60_000): HttpURLConnection {
-        var current = URL(url)
-        var redirects = 0
-        while (true) {
-            val conn = current.openConnection() as HttpURLConnection
-            conn.instanceFollowRedirects = false
-            conn.connectTimeout = 15_000
-            conn.readTimeout = readTimeoutMs
-            conn.setRequestProperty("User-Agent", USER_AGENT)
-            conn.setRequestProperty("Accept", "*/*")
-            val code = conn.responseCode
-            if (code in 300..399 && code != 304) {
-                val location = conn.getHeaderField("Location")
-                conn.disconnect()
-                if (location.isNullOrBlank() || ++redirects > 5) throw IOException("Too many redirects")
-                current = URL(current, location)
-                continue
+    /**
+     * One shared HTTP client for the whole app. It uses [AppDns] (Settings → Network → DNS),
+     * follows redirects (including http <-> https) and trusts the bundled root certificates.
+     */
+    val client: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .dns(AppDns)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(true)
+            .addInterceptor { chain ->
+                val req = chain.request()
+                if (req.header("User-Agent") == null) chain.proceed(req.newBuilder().header("User-Agent", USER_AGENT).build())
+                else chain.proceed(req)
             }
-            if (code !in 200..299) {
-                conn.disconnect()
-                throw HttpError(code)
-            }
-            return conn
+            .apply { legacyTls?.let { sslSocketFactory(it.socketFactory, it.trustManager) } }
+            .build()
+    }
+
+    /** GET [url]; throws [HttpError] for non-2xx answers. The caller must close the response. */
+    fun open(url: String, readTimeoutMs: Int = 60_000): Response {
+        val c = if (readTimeoutMs == 60_000) client
+                else client.newBuilder().readTimeout(readTimeoutMs.toLong(), TimeUnit.MILLISECONDS).build()
+        val res = c.newCall(Request.Builder().url(url).header("Accept", "*/*").build()).execute()
+        if (!res.isSuccessful) {
+            val code = res.code
+            res.close()
+            throw HttpError(code)
         }
+        return res
     }
 
     /**
@@ -93,61 +102,33 @@ object Net {
      * Tries a HEAD request first, then a 1-byte ranged GET (many IPTV servers ignore HEAD).
      */
     fun contentLength(url: String): Long? {
-        for (useHead in listOf(true, false)) {
-            var current = URL(url)
-            var redirects = 0
-            while (redirects <= 5) {
-                val conn = current.openConnection() as HttpURLConnection
-                try {
-                    conn.instanceFollowRedirects = false
-                    conn.connectTimeout = 10_000
-                    conn.readTimeout = 10_000
-                    conn.setRequestProperty("User-Agent", USER_AGENT)
-                    if (useHead) conn.requestMethod = "HEAD" else conn.setRequestProperty("Range", "bytes=0-0")
-                    val code = conn.responseCode
-                    if (code in 300..399) {
-                        val loc = conn.getHeaderField("Location") ?: break
-                        current = URL(current, loc)
-                        redirects++
-                        continue
-                    }
-                    if (code == 206) {
-                        // Content-Range: bytes 0-0/123456789
-                        conn.getHeaderField("Content-Range")?.substringAfterLast('/')?.trim()?.toLongOrNull()
-                            ?.takeIf { it > 0 }?.let { return it }
-                    } else if (code in 200..299) {
-                        conn.getHeaderField("Content-Length")?.trim()?.toLongOrNull()?.takeIf { it > 0 }?.let { return it }
-                    }
-                    break
-                } catch (e: Exception) {
-                    break
-                } finally {
-                    conn.disconnect()
+        val quick = client.newBuilder().readTimeout(10, TimeUnit.SECONDS).connectTimeout(10, TimeUnit.SECONDS).build()
+        try {
+            quick.newCall(Request.Builder().url(url).head().build()).execute().use { res ->
+                if (res.isSuccessful) res.header("Content-Length")?.trim()?.toLongOrNull()?.takeIf { it > 0 }?.let { return it }
+            }
+        } catch (e: Exception) { /* try ranged GET */ }
+        try {
+            quick.newCall(Request.Builder().url(url).header("Range", "bytes=0-0").build()).execute().use { res ->
+                if (res.code == 206) {
+                    // Content-Range: bytes 0-0/123456789
+                    res.header("Content-Range")?.substringAfterLast('/')?.trim()?.toLongOrNull()?.takeIf { it > 0 }?.let { return it }
+                } else if (res.isSuccessful) {
+                    res.header("Content-Length")?.trim()?.toLongOrNull()?.takeIf { it > 0 }?.let { return it }
                 }
             }
-        }
+        } catch (e: Exception) { /* unknown */ }
         return null
     }
 
-    fun getString(url: String): String {
-        val conn = open(url, 30_000)
-        try {
-            return conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
-        } finally {
-            conn.disconnect()
-        }
-    }
+    fun getString(url: String): String = open(url, 30_000).use { it.body?.string().orEmpty() }
 
     /** Streams the response into [dest] via a temporary file so a failed download never corrupts the cache. */
     fun download(url: String, dest: File) {
         val tmp = File(dest.path + ".part")
-        val conn = open(url)
-        try {
-            conn.inputStream.use { input ->
-                tmp.outputStream().use { output -> input.copyTo(output, 64 * 1024) }
-            }
-        } finally {
-            conn.disconnect()
+        open(url).use { res ->
+            val body = res.body ?: throw IOException("Empty response")
+            body.byteStream().use { input -> tmp.outputStream().use { output -> input.copyTo(output, 64 * 1024) } }
         }
         if (dest.exists()) dest.delete()
         if (!tmp.renameTo(dest)) throw IOException("Could not save downloaded data")

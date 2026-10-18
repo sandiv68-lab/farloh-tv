@@ -20,6 +20,7 @@ import com.farloh.tv.data.Catalog
 import com.farloh.tv.data.OpenSubtitles
 import com.farloh.tv.data.Section
 import com.farloh.tv.data.Xtream
+import com.farloh.tv.net.AppDns
 import com.farloh.tv.net.Net
 import kotlinx.coroutines.launch
 
@@ -224,6 +225,13 @@ class SettingsActivity : BaseActivity() {
             }
         }
 
+        r += Row.Header("Network", "network", R.drawable.ic_network, "DNS: ${AppDns.describe(store)}")
+        r += Row.Item("DNS", AppDns.describe(store),
+            "Which DNS Farloh TV uses to find your server. Encrypted presets can get around ISP DNS blocks") { chooseDns() }
+        if (store.dnsMode == "custom") r += Row.Item("Custom DNS address", store.dnsCustom.ifBlank { "Not set" },
+            "An IP like 8.8.8.8, or an https:// DNS-over-HTTPS address") { editCustomDns() }
+        r += Row.Item("Test DNS", "", "Looks up your server's address with the chosen DNS") { testDns() }
+
         r += Row.Header("Online subtitles", "subtitles", R.drawable.ic_subtitles,
             if (store.subsApiKey.isBlank()) "OpenSubtitles – not set up yet" else "OpenSubtitles – ${if (store.subsServer == "vip") "VIP server" else if (store.subsServer == "custom") "custom server" else "default server"}")
         r += Row.Item("Subtitle server", when (store.subsServer) {
@@ -425,6 +433,48 @@ class SettingsActivity : BaseActivity() {
                     .setMessage(e.message ?: "Couldn't reach the subtitle server.")
                     .setPositiveButton("OK", null).show()
             }
+        }
+    }
+
+    // ---------------- Network ----------------
+
+    private fun chooseDns() {
+        val labels = listOf("Device default") + AppDns.PRESETS.map { "${it.label} (encrypted)" } + "Custom…"
+        val values = listOf("system") + AppDns.PRESETS.map { it.key } + "custom"
+        Dialogs.choose(this, "DNS", labels, values, store.dnsMode) { mode ->
+            if (mode == "custom") editCustomDns()
+            else { store.dnsMode = mode; AppDns.reset(); refresh(); toast("DNS: ${AppDns.describe(store)}") }
+        }
+    }
+
+    private fun editCustomDns() {
+        Dialogs.input(this, "Custom DNS (e.g. 8.8.8.8 or https://…/dns-query)", store.dnsCustom) { v ->
+            val value = v.trim()
+            val ok = value.startsWith("https://", true) ||
+                Regex("^\\d{1,3}(\\.\\d{1,3}){3}(:\\d{1,5})?$").matches(value)
+            if (!ok) { toast("Enter an IP address like 8.8.8.8, or an https:// address", long = true); return@input }
+            store.dnsCustom = value
+            store.dnsMode = "custom"
+            AppDns.reset()
+            refresh()
+            testDns()
+        }
+    }
+
+    private fun testDns() {
+        val host = runCatching { android.net.Uri.parse(store.account?.server).host }.getOrNull() ?: "dns.google"
+        toast("Testing…")
+        lifecycleScope.launch {
+            val started = System.currentTimeMillis()
+            val result = runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { AppDns.test(host) }
+            }
+            val ms = System.currentTimeMillis() - started
+            val msg = result.fold(
+                onSuccess = { list -> "Using: ${AppDns.describe(store)}\n\n$host\n→ ${list.take(3).joinToString { it.hostAddress ?: "?" }}\n\nAnswered in $ms ms ✓" },
+                onFailure = { e -> "Using: ${AppDns.describe(store)}\n\nCouldn't look up $host:\n${e.message ?: e.javaClass.simpleName}\n\nThe app will fall back to the device's DNS if this keeps failing." },
+            )
+            AlertDialog.Builder(this@SettingsActivity).setTitle("DNS test").setMessage(msg).setPositiveButton("OK", null).show()
         }
     }
 

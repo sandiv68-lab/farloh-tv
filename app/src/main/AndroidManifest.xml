@@ -37,6 +37,8 @@
         <activity
             android:name=".ui.LoginActivity"
             android:exported="true"
+            android:banner="@drawable/tv_banner"
+            android:theme="@style/Theme.Farloh.Launch"
             android:screenOrientation="sensorLandscape"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
