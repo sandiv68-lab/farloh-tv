@@ -46,6 +46,15 @@ class SettingsActivity : BaseActivity() {
         v.findViewById<TextView>(R.id.summary).text = h.summary
     }
     private var parentalUnlocked = false
+    private var sizes: com.farloh.tv.data.StorageInfo.Sizes? = null
+
+    private fun remeasure(doneMessage: String? = null) {
+        lifecycleScope.launch {
+            sizes = com.farloh.tv.data.StorageInfo.measure(this@SettingsActivity)
+            refresh()
+            doneMessage?.let { toast(it) }
+        }
+    }
 
     private val adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
         override fun getItemViewType(position: Int) = if (rows[position] is Row.Header) 0 else 1
@@ -103,7 +112,7 @@ class SettingsActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (::list.isInitialized) refresh()
+        if (::list.isInitialized) { refresh(); remeasure() }
     }
 
     private fun buildGroups(): List<Group> {
@@ -339,6 +348,55 @@ class SettingsActivity : BaseActivity() {
             }
         }
 
+        val sz = sizes
+        fun mb(b: Long?) = if (b == null) "…" else android.text.format.Formatter.formatShortFileSize(this, b)
+        r += Row.Header("Storage", "storage", R.drawable.ic_download,
+            if (sz == null) "Space used by playlists, pictures and downloads" else "${mb(sz.playlistAll + sz.pictures + sz.subtitles + sz.updates)} used • ${mb(sz.free)} free")
+        r += Row.Item("Free space on this device", mb(sz?.free)) { }
+        r += Row.Item("Saved playlists – this playlist", mb(sz?.playlistActive),
+            "Channel, movie and show lists. Only re-downloaded when you press Refresh") {
+            Dialogs.confirm(this, "Clear this playlist's saved lists?", "They'll download again next time you open each section.", "Clear") {
+                Catalog.clear(this); Section.values().forEach { store.setItemCount(it, -1) }; remeasure("Saved lists cleared")
+            }
+        }
+        if (store.playlists().size > 1) r += Row.Item("Saved playlists – all playlists", mb(sz?.playlistAll)) {
+            Dialogs.confirm(this, "Clear saved lists for all playlists?", "They'll download again when you next use each playlist.", "Clear") {
+                lifecycleScope.launch { com.farloh.tv.data.StorageInfo.clearAllPlaylists(this@SettingsActivity); remeasure("All saved lists cleared") }
+            }
+        }
+        r += Row.Item("Pictures (logos & posters)", mb(sz?.pictures) + " of ${store.imageCacheMb} MB",
+            "Kept so they load instantly. Oldest are removed when full. Tap to clear") {
+            lifecycleScope.launch { com.farloh.tv.data.StorageInfo.clearPictures(this@SettingsActivity); remeasure("Pictures cleared") }
+        }
+        r += Row.Item("Picture storage limit", "${store.imageCacheMb} MB", "Smaller suits Fire Sticks and boxes with little space") {
+            Dialogs.choose(this, "Picture storage limit", IMAGE_CACHE.map { "$it MB" }, IMAGE_CACHE, store.imageCacheMb) {
+                store.imageCacheMb = it
+                com.farloh.tv.data.StorageInfo.applyPictureCacheSize(this)
+                refresh()
+            }
+        }
+        r += Row.Item("Downloaded subtitles", mb(sz?.subtitles), "Subtitles for downloaded videos are kept") {
+            lifecycleScope.launch { com.farloh.tv.data.StorageInfo.clearSubtitles(this@SettingsActivity); remeasure("Subtitles cleared") }
+        }
+        r += Row.Item("Update files", mb(sz?.updates), "Removed automatically after an update installs") {
+            lifecycleScope.launch { com.farloh.tv.data.StorageInfo.clearUpdates(this@SettingsActivity); remeasure("Update files cleared") }
+        }
+        r += Row.Item("TV guide", "Memory only", "Kept for 10 minutes per channel. Tap to clear") {
+            Xtream.clearCache(); toast("TV guide cleared")
+        }
+        r += Row.Item("Offline downloads", mb(sz?.downloads), "Manage them on the Downloads screen") {
+            startActivity(Intent(this, DownloadsActivity::class.java))
+        }
+        r += Row.Item("Clear all cache", sz?.let { mb(it.clearable) } ?: "",
+            "Pictures, TV guide and update files. Doesn't touch playlists, favourites or downloads") {
+            lifecycleScope.launch {
+                com.farloh.tv.data.StorageInfo.clearPictures(this@SettingsActivity)
+                com.farloh.tv.data.StorageInfo.clearUpdates(this@SettingsActivity)
+                Xtream.clearCache()
+                remeasure("Cache cleared")
+            }
+        }
+
         r += Row.Header("Playlist", "playlist", R.drawable.ic_playlist, store.activePlaylist?.name.orEmpty())
         r += Row.Item("Account info", store.account?.username.orEmpty()) { showAccountInfo() }
         r += Row.Item("Clear saved lists", "", "Live TV, Movies and TV Shows download again next time") {
@@ -535,6 +593,7 @@ class SettingsActivity : BaseActivity() {
         )
         private val BUFFERS = listOf("small" to "Small (fast start)", "normal" to "Normal", "large" to "Large", "xl" to "Very large")
         private val RECENT_LIMITS = listOf(0, 25, 50, 100, 200)
+        private val IMAGE_CACHE = listOf(50, 100, 150, 300, 500)
         private val ZOOMS = listOf(60, 70, 80, 90, 100, 110, 125)
         private val TEXT_ZOOMS = listOf(0, 80, 90, 100, 115, 130)
         val RESIZES = listOf("fit" to "Fit", "stretch" to "Stretch", "crop" to "Crop (fill screen)", "16:9" to "16:9", "4:3" to "4:3")

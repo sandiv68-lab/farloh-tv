@@ -17,6 +17,8 @@ class FarlohApp : Application(), ImageLoaderFactory {
         // that are missing the current Let's Encrypt / Google / DigiCert roots.
         Net.init(this)
         com.farloh.tv.net.AppDns.init(this)
+        // An update was installed (or abandoned): the downloaded APK isn't needed any more.
+        cacheDir.resolve("updates").deleteRecursively()
         // Version 1.0 kept lists directly in files/catalog; they now live in one folder per playlist.
         filesDir.resolve("catalog").listFiles()?.filter { it.isFile }?.forEach { it.delete() }
     }
@@ -28,7 +30,7 @@ class FarlohApp : Application(), ImageLoaderFactory {
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("images"))
-                    .maxSizeBytes(150L * 1024 * 1024)
+                    .maxSizeBytes(com.farloh.tv.data.Store.get(this).imageCacheMb.coerceAtLeast(20) * 1024L * 1024L)
                     .build()
             }
             .respectCacheHeaders(false)

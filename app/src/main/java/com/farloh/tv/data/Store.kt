@@ -224,6 +224,9 @@ class Store private constructor(context: Context) {
     /** "auto", "mobile" or "tv". */
     var deviceMode: String by StringPref("device_mode", "auto")
 
+    /** Maximum space for cached pictures (channel logos, posters), in MB. */
+    var imageCacheMb: Int by IntPref("image_cache_mb", 150)
+
     /** "system", a preset key from AppDns.PRESETS, or "custom". */
     var dnsMode: String by StringPref("dns_mode", "system")
     /** Custom DNS: an IP (e.g. 8.8.8.8) or an https:// DNS-over-HTTPS address. */
