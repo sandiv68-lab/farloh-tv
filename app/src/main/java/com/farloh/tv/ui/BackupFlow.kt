@@ -54,24 +54,9 @@ class BackupFlow(private val activity: BaseActivity) {
     // ======================= Backup =======================
 
     fun startBackup() {
-        Dialogs.input(activity, "Backup password (you'll need it to restore)", password = true) { pw ->
-            if (pw.isEmpty()) {
-                Dialogs.confirm(activity, "No password?",
-                    "Without a password, anyone who gets the file can read your server logins.\n\nSave it without a password anyway?",
-                    "Save without") { makeBackup("") }
-            } else {
-                Dialogs.input(activity, "Type the password again", password = true) { again ->
-                    if (again != pw) activity.toast("Passwords didn't match") else makeBackup(pw)
-                }
-            }
-        }
-    }
-
-    private fun makeBackup(password: String) {
-        activity.toast("Preparing backup…")
         activity.lifecycleScope.launch {
             val bytes = try {
-                withContext(Dispatchers.Default) { Backup.create(activity, password) }
+                withContext(Dispatchers.Default) { Backup.create(activity) }
             } catch (e: Exception) {
                 activity.toast("Couldn't create the backup: ${e.message}", long = true); return@launch
             }
@@ -90,7 +75,7 @@ class BackupFlow(private val activity: BaseActivity) {
             val ok = withContext(Dispatchers.IO) {
                 runCatching { activity.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } != null }.getOrDefault(false)
             }
-            if (ok) done("Backup saved.", "Keep it somewhere safe, like Google Drive or your email. To restore: Settings → Backup & restore → Restore, or \"Restore from backup\" on the sign-in screen.")
+            if (ok) done("Backup saved", "To set up another device (or this one after a reinstall), install Farloh TV and press \"Restore from backup\" on the sign-in screen, or Settings → Backup & restore → Restore.\n\nThe file contains your server logins, so only share it with people you trust.")
             else activity.toast("Couldn't save the backup there. Try another place.", long = true)
         }
     }
@@ -172,24 +157,10 @@ class BackupFlow(private val activity: BaseActivity) {
     }
 
     private fun open(bytes: ByteArray) {
-        val needsPw = try {
-            Backup.needsPassword(bytes)
-        } catch (e: Backup.NotABackup) {
-            activity.toast("That isn't a Farloh TV backup file.", long = true); return
-        }
-        if (needsPw) {
-            Dialogs.input(activity, "Backup password", password = true) { pw -> unlock(bytes, pw) }
-        } else unlock(bytes, "")
-    }
-
-    private fun unlock(bytes: ByteArray, password: String) {
         activity.lifecycleScope.launch {
-            val result = withContext(Dispatchers.Default) { runCatching { Backup.read(bytes, password) } }
+            val result = withContext(Dispatchers.Default) { runCatching { Backup.read(bytes) } }
             result.onFailure { e ->
-                if (e is Backup.WrongPassword) {
-                    AlertDialog.Builder(activity).setTitle("Wrong password").setMessage("That password doesn't open this backup.")
-                        .setPositiveButton("Try again") { _, _ -> open(bytes) }.setNegativeButton("Cancel", null).show()
-                } else activity.toast("Couldn't read the backup: ${e.message}", long = true)
+                activity.toast(if (e is Backup.NotABackup) "That isn't a Farloh TV backup file." else "Couldn't read the backup: ${e.message}", long = true)
             }
             result.onSuccess { (payload, summary) ->
                 val replacing = Store.get(activity).playlists().isNotEmpty()

@@ -410,7 +410,7 @@ class SettingsActivity : BaseActivity() {
         r += Row.Header("Backup & restore", "backup", R.drawable.ic_backup,
             "Save playlists, favourites and settings to a file")
         r += Row.Item("Create backup", "",
-            "All playlists and logins, favourites, history, hidden groups, resume points and every setting. Password-protected") {
+            "All playlists and logins, favourites, history, hidden groups, resume points and every setting. Use it to set up other devices too") {
             backup.startBackup()
         }
         r += Row.Item("Restore from backup", "", "Replaces everything in the app with the backup") {
