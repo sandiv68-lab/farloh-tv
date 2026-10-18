@@ -51,7 +51,7 @@ object Feed {
         if (!configured) return@withContext emptyList()
         val p = prefs(ctx)
         if (!force && System.currentTimeMillis() - p.getLong("fetched", 0) < REFRESH_MS) return@withContext cached(ctx)
-        val csv = Net.getString(BuildConfig.FEED_URL + (if ('?' in BuildConfig.FEED_URL) "&" else "?") + "t=" + System.currentTimeMillis() / 60_000)
+        val csv = Net.getString(BuildConfig.FEED_URL)
         val list = parse(csv)
         val arr = JSONArray()
         list.forEach { arr.put(JSONObject().put("d", it.date).put("t", it.title).put("m", it.message).put("l", it.link).put("v", it.version)) }
