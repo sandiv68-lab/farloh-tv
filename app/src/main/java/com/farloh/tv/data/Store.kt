@@ -317,9 +317,16 @@ class Store private constructor(context: Context) {
     fun importFromBackup(data: JSONObject) {
         val values = data.optJSONObject("prefs") ?: throw IllegalArgumentException("Backup has no settings")
         val secrets = data.optJSONObject("secrets") ?: JSONObject()
+        // Screen settings belong to this device (a phone backup shouldn't resize a TV), so keep them.
+        val keep = DEVICE_KEYS.mapNotNull { k -> prefs.all[k]?.let { k to it } }
         val e = prefs.edit().clear()
+        for ((k, v) in keep) when (v) {
+            is String -> e.putString(k, v)
+            is Int -> e.putInt(k, v)
+            is Boolean -> e.putBoolean(k, v)
+        }
         for (k in values.keys()) {
-            if (k in SECRET_KEYS) continue
+            if (k in SECRET_KEYS || k in DEVICE_KEYS) continue
             val o = values.optJSONObject(k) ?: continue
             when (o.optString("t")) {
                 "s" -> e.putString(k, o.optString("v"))
@@ -365,6 +372,8 @@ class Store private constructor(context: Context) {
         private const val KEY_ACTIVE = "active_playlist"
         /** Stored encrypted with this device's key; exported in plain text inside the (password-protected) backup. */
         private val SECRET_KEYS = setOf(KEY_PLAYLISTS, "subs_password", "subs_api_key")
+        /** Per-device screen settings that a restore leaves as they are. */
+        private val DEVICE_KEYS = setOf("device_mode", "ui_zoom", "text_zoom", "orientation")
 
         fun defaultName(account: Account): String =
             runCatching { android.net.Uri.parse(account.server).host }.getOrNull()?.takeIf { it.isNotBlank() } ?: account.username
