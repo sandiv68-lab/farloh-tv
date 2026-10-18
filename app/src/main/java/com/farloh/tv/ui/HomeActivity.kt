@@ -74,6 +74,8 @@ class HomeActivity : BaseActivity() {
         findViewById<View>(R.id.settings).setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
         findViewById<View>(R.id.downloads).setOnClickListener { openDownloads() }
         findViewById<View>(R.id.search).setOnClickListener { startActivity(Intent(this, SearchActivity::class.java)) }
+        findViewById<View>(R.id.bell).setOnClickListener { startActivity(Intent(this, NewsActivity::class.java)) }
+        findViewById<View>(R.id.bell).visibility = if (com.farloh.tv.data.Feed.configured) View.VISIBLE else View.GONE
         tiles.getValue(Section.LIVE).card.requestFocus()
 
         if (!store.initialLoadDone) firstLoad()
@@ -85,6 +87,47 @@ class HomeActivity : BaseActivity() {
         if (store.account == null) { requireAccount(); return }
         showHeader()
         Section.values().forEach { updateTile(it) }
+        updateBell()
+        checkNews(force = false)
+        handler.removeCallbacks(newsTick)
+        handler.postDelayed(newsTick, 3 * 3600_000L)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        handler.removeCallbacks(newsTick)
+    }
+
+    // ---------------- News bell & updates ----------------
+
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val newsTick = object : Runnable {
+        override fun run() {
+            checkNews(force = true)
+            handler.postDelayed(this, 3 * 3600_000L)
+        }
+    }
+
+    private fun updateBell() {
+        val n = com.farloh.tv.data.Feed.unreadCount(this)
+        findViewById<TextView>(R.id.bellBadge).apply {
+            text = if (n > 9) "9+" else n.toString()
+            visibility = if (n > 0) View.VISIBLE else View.GONE
+        }
+    }
+
+    private fun checkNews(force: Boolean) {
+        if (!com.farloh.tv.data.Feed.configured) return
+        lifecycleScope.launch {
+            runCatching { com.farloh.tv.data.Feed.refresh(this@HomeActivity, force) }
+            if (isFinishing) return@launch
+            updateBell()
+            val update = com.farloh.tv.data.Feed.availableUpdate(this@HomeActivity) ?: return@launch
+            if (com.farloh.tv.data.Feed.shouldPrompt(this@HomeActivity, update.version)) {
+                com.farloh.tv.data.Feed.setPrompted(this@HomeActivity, update.version)
+                Updater.offer(this@HomeActivity, update)
+            }
+        }
     }
 
     private fun showHeader() {

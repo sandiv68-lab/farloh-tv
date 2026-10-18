@@ -3,6 +3,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- In-app updates: lets Farloh TV open the installer for a newer Farloh TV APK. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Works on Android TV / Fire TV (remote) as well as phones and tablets (touch). -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -51,6 +53,7 @@
         <activity android:name=".ui.HomeActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
         <activity android:name=".ui.SettingsActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
         <activity android:name=".ui.DownloadsActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
+        <activity android:name=".ui.NewsActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
         <activity android:name=".ui.SearchActivity" android:exported="false" android:screenOrientation="sensorLandscape"
             android:windowSoftInputMode="adjustResize|stateVisible" />
 

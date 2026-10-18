@@ -31,6 +31,8 @@ android {
         versionCode = 7
         versionName = "1.5.0"
         vectorDrawables.useSupportLibrary = true
+        // Google Sheet (published as CSV) with news + update notices for the bell. Empty = bell hidden.
+        buildConfigField("String", "FEED_URL", "\"${(project.findProperty("farloh.feedUrl") as String?) ?: ""}\"")
     }
 
     signingConfigs {

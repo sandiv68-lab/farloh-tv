@@ -25,6 +25,15 @@
                 android:src="@drawable/ic_download" android:contentDescription="Downloads" />
             <ImageButton android:id="@+id/settings" style="@style/IconBtn" android:layout_marginStart="8dp"
                 android:src="@drawable/ic_settings" android:contentDescription="Settings" />
+            <FrameLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginStart="8dp">
+                <ImageButton android:id="@+id/bell" style="@style/IconBtn"
+                    android:src="@drawable/ic_bell" android:contentDescription="News and updates" />
+                <TextView android:id="@+id/bellBadge" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_gravity="top|end" android:background="@drawable/badge_red" android:gravity="center"
+                    android:minWidth="20dp" android:paddingStart="5dp" android:paddingEnd="5dp" android:textColor="#FFFFFF"
+                    android:textSize="11sp" android:textStyle="bold" android:visibility="gone" />
+            </FrameLayout>
         </LinearLayout>
 
         <LinearLayout android:id="@+id/tiles" android:layout_width="match_parent" android:layout_height="0dp"
