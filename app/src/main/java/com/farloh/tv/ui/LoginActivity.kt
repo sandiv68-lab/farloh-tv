@@ -36,6 +36,7 @@ class LoginActivity : BaseActivity() {
     private lateinit var progress: ProgressBar
     private lateinit var error: TextView
     private var addMode = false
+    private val backup = BackupFlow(this)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,6 +58,10 @@ class LoginActivity : BaseActivity() {
         val form = findViewById<LinearLayout>(R.id.form)
         form.layoutParams = form.layoutParams.apply { width = minOf(dp(460), resources.displayMetrics.widthPixels - dp(48)) }
 
+        findViewById<Button>(R.id.restore).apply {
+            visibility = if (addMode) View.GONE else View.VISIBLE
+            setOnClickListener { backup.startRestore() }
+        }
         if (addMode) {
             findViewById<TextView>(R.id.heading).text = "Add a playlist"
             signIn.text = "Add playlist"

@@ -281,6 +281,66 @@ class Store private constructor(context: Context) {
         MessageDigest.getInstance("SHA-256").digest("farloh-parental:$pin".toByteArray()).joinToString("") { "%02x".format(it) }
 
     /** Wipes everything (all playlists and settings). */
+    // =================== Backup & restore ===================
+
+    /**
+     * Everything needed to rebuild this app on another device: all settings, playlists (logins in plain
+     * text, because the device's own encryption key can't move to another device), favourites, history,
+     * hidden groups and resume positions. Saved lists are left out; they download again.
+     */
+    fun exportForBackup(): JSONObject {
+        val values = JSONObject()
+        for ((k, v) in prefs.all) {
+            if (k in SECRET_KEYS || k == "account") continue
+            if (k.endsWith(":initial_load_done") || k.contains(":count_")) continue
+            val o = when (v) {
+                is String -> JSONObject().put("t", "s").put("v", v)
+                is Boolean -> JSONObject().put("t", "b").put("v", v)
+                is Int -> JSONObject().put("t", "i").put("v", v)
+                is Long -> JSONObject().put("t", "l").put("v", v)
+                is Float -> JSONObject().put("t", "f").put("v", v.toDouble())
+                is Set<*> -> JSONObject().put("t", "set").put("v", JSONArray(v.map { it.toString() }))
+                else -> continue
+            }
+            values.put(k, o)
+        }
+        val secrets = JSONObject()
+        for (k in SECRET_KEYS) {
+            val raw = prefs.getString(k, null) ?: continue
+            val plain = if (raw.startsWith("g1:") || raw.startsWith("p1:")) Crypto.decrypt(raw) else raw
+            if (plain != null) secrets.put(k, plain)
+        }
+        return JSONObject().put("prefs", values).put("secrets", secrets)
+    }
+
+    /** Replaces all settings with a backup. Logins are re-encrypted with this device's key. */
+    fun importFromBackup(data: JSONObject) {
+        val values = data.optJSONObject("prefs") ?: throw IllegalArgumentException("Backup has no settings")
+        val secrets = data.optJSONObject("secrets") ?: JSONObject()
+        val e = prefs.edit().clear()
+        for (k in values.keys()) {
+            if (k in SECRET_KEYS) continue
+            val o = values.optJSONObject(k) ?: continue
+            when (o.optString("t")) {
+                "s" -> e.putString(k, o.optString("v"))
+                "b" -> e.putBoolean(k, o.optBoolean("v"))
+                "i" -> e.putInt(k, o.optInt("v"))
+                "l" -> e.putLong(k, o.optLong("v"))
+                "f" -> e.putFloat(k, o.optDouble("v").toFloat())
+                "set" -> {
+                    val arr = o.optJSONArray("v") ?: JSONArray()
+                    e.putStringSet(k, (0 until arr.length()).map { arr.optString(it) }.toHashSet())
+                }
+            }
+        }
+        for (k in SECRET_KEYS) {
+            val plain = secrets.optString(k, "")
+            if (plain.isNotEmpty()) e.putString(k, Crypto.encrypt(plain))
+        }
+        e.commit()
+        cachedPlaylists = null
+    }
+
     fun clearAll() {
         prefs.edit().clear().apply()
         cachedPlaylists = null
@@ -303,6 +363,8 @@ class Store private constructor(context: Context) {
     companion object {
         private const val KEY_PLAYLISTS = "playlists"
         private const val KEY_ACTIVE = "active_playlist"
+        /** Stored encrypted with this device's key; exported in plain text inside the (password-protected) backup. */
+        private val SECRET_KEYS = setOf(KEY_PLAYLISTS, "subs_password", "subs_api_key")
 
         fun defaultName(account: Account): String =
             runCatching { android.net.Uri.parse(account.server).host }.getOrNull()?.takeIf { it.isNotBlank() } ?: account.username

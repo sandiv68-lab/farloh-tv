@@ -5,6 +5,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- In-app updates: lets Farloh TV open the installer for a newer Farloh TV APK. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Only for saving/finding backups in Download/ on older devices that have no file picker. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
 
     <!-- Works on Android TV / Fire TV (remote) as well as phones and tablets (touch). -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -26,6 +29,7 @@
     <application
         android:name=".FarlohApp"
         android:allowBackup="false"
+        android:requestLegacyExternalStorage="true"
         android:banner="@drawable/tv_banner"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"

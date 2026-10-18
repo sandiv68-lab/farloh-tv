@@ -46,6 +46,7 @@ class SettingsActivity : BaseActivity() {
         v.findViewById<TextView>(R.id.summary).text = h.summary
     }
     private var parentalUnlocked = false
+    private val backup = BackupFlow(this)
     private var sizes: com.farloh.tv.data.StorageInfo.Sizes? = null
 
     private fun remeasure(doneMessage: String? = null) {
@@ -404,6 +405,16 @@ class SettingsActivity : BaseActivity() {
                 Xtream.clearCache()
                 remeasure("Cache cleared")
             }
+        }
+
+        r += Row.Header("Backup & restore", "backup", R.drawable.ic_backup,
+            "Save playlists, favourites and settings to a file")
+        r += Row.Item("Create backup", "",
+            "All playlists and logins, favourites, history, hidden groups, resume points and every setting. Password-protected") {
+            backup.startBackup()
+        }
+        r += Row.Item("Restore from backup", "", "Replaces everything in the app with the backup") {
+            backup.startRestore()
         }
 
         r += Row.Header("Playlist", "playlist", R.drawable.ic_playlist, store.activePlaylist?.name.orEmpty())
