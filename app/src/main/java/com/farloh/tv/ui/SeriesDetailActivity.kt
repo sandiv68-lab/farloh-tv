@@ -63,10 +63,10 @@ class SeriesDetailActivity : BaseActivity() {
         updateFav()
         findViewById<TextView>(R.id.title).text = showName
         findViewById<ImageView>(R.id.poster).loadImage(cover)
-        if (screenWidthDp < 600) {
+        // Short screens: smaller poster so the info column needs less scrolling.
+        if (resources.configuration.screenHeightDp < 420) {
             val poster = findViewById<View>(R.id.poster)
             poster.layoutParams = poster.layoutParams.apply { width = dp(80); height = dp(120) }
-            findViewById<TextView>(R.id.title).textSize = 20f
         }
 
         val seasonsRv = findViewById<RecyclerView>(R.id.seasons)
