@@ -36,14 +36,16 @@
             </FrameLayout>
         </LinearLayout>
 
-        <LinearLayout android:id="@+id/tiles" android:layout_width="match_parent" android:layout_height="0dp"
-            android:layout_weight="1" android:layout_marginTop="8dp" android:orientation="horizontal">
-            <include android:id="@+id/tileLive" layout="@layout/home_tile"
-                android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" />
-            <include android:id="@+id/tileMovies" layout="@layout/home_tile"
-                android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" />
-            <include android:id="@+id/tileSeries" layout="@layout/home_tile"
-                android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" />
-        </LinearLayout>
+        <!-- Tiles are a fixed, comfortable size and sit in the middle of the free space. -->
+        <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+            android:clipChildren="false" android:clipToPadding="false">
+            <LinearLayout android:id="@+id/tiles" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_gravity="center" android:clipChildren="false" android:clipToPadding="false"
+                android:orientation="horizontal">
+                <include android:id="@+id/tileLive" layout="@layout/home_tile" />
+                <include android:id="@+id/tileMovies" layout="@layout/home_tile" />
+                <include android:id="@+id/tileSeries" layout="@layout/home_tile" />
+            </LinearLayout>
+        </FrameLayout>
     </LinearLayout>
 </FrameLayout>

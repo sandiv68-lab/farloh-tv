@@ -49,25 +49,13 @@ class HomeActivity : BaseActivity() {
             tile.title.text = section.title
             tile.card.setOnClickListener { open(section) }
             tile.card.setOnFocusChangeListener { v, f ->
-                v.animate().scaleX(if (f) 1.04f else 1f).scaleY(if (f) 1.04f else 1f).setDuration(140).start()
+                v.animate().scaleX(if (f) 1.07f else 1f).scaleY(if (f) 1.07f else 1f).setDuration(140).start()
             }
-            tile.refresh.text = "Refresh ${section.title}"
+            tile.refresh.contentDescription = "Refresh ${section.title}"
             tile.refresh.setOnClickListener { refresh(section) }
         }
 
-        // Stack the tiles vertically on narrow phone screens.
-        if (store.deviceMode != "tv" && screenWidthDp < 600) {
-            val container = findViewById<LinearLayout>(R.id.tiles)
-            container.orientation = LinearLayout.VERTICAL
-            for (tile in tiles.values) {
-                tile.root.layoutParams = (tile.root.layoutParams as LinearLayout.LayoutParams).apply {
-                    width = LinearLayout.LayoutParams.MATCH_PARENT; height = 0; weight = 1f
-                }
-                tile.icon.layoutParams = tile.icon.layoutParams.apply { width = dp(36); height = dp(36) }
-                tile.title.textSize = 20f
-            }
-            findViewById<View>(R.id.account).visibility = View.GONE
-        }
+        sizeTiles()
 
         playlistButton = findViewById(R.id.playlist)
         playlistButton.setOnClickListener { showPlaylists() }
@@ -126,6 +114,27 @@ class HomeActivity : BaseActivity() {
             if (com.farloh.tv.data.Feed.shouldPrompt(this@HomeActivity, update.version)) {
                 com.farloh.tv.data.Feed.setPrompted(this@HomeActivity, update.version)
                 Updater.offer(this@HomeActivity, update)
+            }
+        }
+    }
+
+    /**
+     * Fixed-size tiles that fit the screen with room around them (so the focus outline is visible),
+     * capped so they don't fill a big TV. They follow Settings → Screen → App size.
+     */
+    private fun sizeTiles() {
+        val w = resources.configuration.screenWidthDp
+        val h = resources.configuration.screenHeightDp
+        val byWidth = (w - 40 - 3 * 36) / 3          // three tiles + margins across
+        val byHeight = ((h - 190) / 0.72f).toInt()    // header + refresh buttons below
+        val tileW = minOf(230, byWidth, byHeight).coerceAtLeast(130)
+        val tileH = (tileW * 0.72f).toInt()
+        for (tile in tiles.values) {
+            tile.root.layoutParams = tile.root.layoutParams.apply { width = dp(tileW) }
+            tile.card.layoutParams = tile.card.layoutParams.apply { height = dp(tileH) }
+            if (tileW < 190) {
+                tile.icon.layoutParams = tile.icon.layoutParams.apply { width = dp(36); height = dp(36) }
+                tile.title.textSize = 17f
             }
         }
     }
