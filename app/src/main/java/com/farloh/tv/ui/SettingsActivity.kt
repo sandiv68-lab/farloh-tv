@@ -224,7 +224,7 @@ class SettingsActivity : BaseActivity() {
             Dialogs.choose(this, "Decoder", DECODERS.map { "${it.second} – ${DECODER_HINTS[it.first]}" },
                 DECODERS.map { it.first }, store.decoderMode) { store.decoderMode = it; refresh() }
         }
-        r += Row.Item("Video screen size", label(RESIZES, store.videoResize), "Can also be changed while watching (Options button)") {
+        r += Row.Item("Video screen size", label(RESIZES, store.videoResize), "Can also be changed while watching (Settings button in the player)") {
             Dialogs.choose(this, "Video screen size", RESIZES.map { it.second }, RESIZES.map { it.first }, store.videoResize) {
                 store.videoResize = it; refresh()
             }

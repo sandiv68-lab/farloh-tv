@@ -189,13 +189,15 @@ class PlayerActivity : BaseActivity() {
 
         playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
         playerView.setKeepContentOnPlayerReset(true)
-        playerView.setShowSubtitleButton(true)
+        playerView.setShowSubtitleButton(false)
+        playerView.findViewById<View>(androidx.media3.ui.R.id.exo_settings)?.visibility = View.GONE
+        playerView.setShowNextButton(true)
+        playerView.setShowPreviousButton(true)
         playerView.controllerShowTimeoutMs = 4000
         playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
             vodTop.visibility = if (!isLive && visibility == View.VISIBLE) View.VISIBLE else View.GONE
         })
         findViewById<View>(R.id.vodExternal).setOnClickListener { openExternal() }
-        findViewById<View>(R.id.vodSubs).setOnClickListener { subtitleMenu() }
 
         if (isLive) {
             playerView.useController = false
@@ -209,7 +211,6 @@ class PlayerActivity : BaseActivity() {
             channelList.adapter = channelAdapter
             channelAdapter.onClick = { _, pos -> hidePanel(); switchTo(pos) }
             btnChannels.setOnClickListener { showPanel() }
-            findViewById<View>(R.id.btnSubs).setOnClickListener { trackDialog(C.TRACK_TYPE_TEXT, "Subtitles") }
             findViewById<View>(R.id.btnExternal).setOnClickListener { openExternal() }
             btnFav.setOnClickListener { toggleFavorite() }
         } else {
@@ -276,7 +277,7 @@ class PlayerActivity : BaseActivity() {
         exo.trackSelectionParameters = subtitlePreferences(exo)
         exo.addListener(listener)
         exo.playWhenReady = true
-        playerView.player = exo
+        playerView.player = queuePlayer(exo)
         player = exo
     }
 
@@ -348,10 +349,19 @@ class PlayerActivity : BaseActivity() {
         return Rational(16, 9)
     }
 
+    /** Where the video is on screen; lets Android zoom the real picture into the PiP window. */
+    private fun videoRect(): Rect? {
+        val v = playerView.videoSurfaceView ?: playerView
+        val r = Rect()
+        return if (v.getGlobalVisibleRect(r) && r.width() > 0 && r.height() > 0) r else null
+    }
+
     private fun enterPip(): Boolean {
         if (!pipSupported() || Build.VERSION.SDK_INT < 26) return false
         return try {
-            enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(pipRatio()).build())
+            val b = PictureInPictureParams.Builder().setAspectRatio(pipRatio())
+            videoRect()?.let { b.setSourceRectHint(it) }
+            enterPictureInPictureMode(b.build())
         } catch (e: Exception) {
             false
         }
@@ -366,6 +376,7 @@ class PlayerActivity : BaseActivity() {
                     .setAspectRatio(pipRatio())
                     .setAutoEnterEnabled(store.pipEnabled && player?.isPlaying == true)
                     .setSeamlessResizeEnabled(true)
+                    .apply { videoRect()?.let { setSourceRectHint(it) } }
                     .build()
             )
         } catch (e: Exception) {
@@ -431,12 +442,11 @@ class PlayerActivity : BaseActivity() {
     private fun subtitleMenu() {
         val p = current
         val opts = ArrayList<Pair<String, () -> Unit>>()
-        opts += "Choose subtitle track" to { trackDialog(C.TRACK_TYPE_TEXT, "Subtitles") }
+        opts += "Choose subtitle track (or Off)" to { trackDialog(C.TRACK_TYPE_TEXT, "Subtitles") }
         opts += "Search online (OpenSubtitles)" to { searchSubtitles() }
         if (subFile(p).exists()) opts += "Remove downloaded subtitle" to {
             subFile(p).delete(); reloadKeepingPosition(); toast("Subtitle removed")
         }
-        opts += "Subtitles off" to { setSubtitlesEnabled(false); toast("Subtitles off") }
         AlertDialog.Builder(this)
             .setTitle("Subtitles")
             .setItems(opts.map { it.first }.toTypedArray()) { _, which -> opts[which].second() }
@@ -586,6 +596,43 @@ class PlayerActivity : BaseActivity() {
                 playerView.showController()
             }
         }
+    }
+
+    /**
+     * Lets the player's ⏮ / ⏭ buttons move through the episode list (and channel list for live TV),
+     * even though only one stream is loaded at a time.
+     */
+    private fun queuePlayer(exo: ExoPlayer): Player = object : androidx.media3.common.ForwardingPlayer(exo) {
+        private fun hasNext() = !isLive && index + 1 < items.size
+        private fun hasPrev() = !isLive && index > 0
+
+        override fun getAvailableCommands(): Player.Commands {
+            val b = super.getAvailableCommands().buildUpon()
+            if (hasNext()) b.addAll(Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+            if (!isLive) b.add(Player.COMMAND_SEEK_TO_PREVIOUS)
+            if (hasPrev()) b.add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+            return b.build()
+        }
+
+        override fun isCommandAvailable(command: Int): Boolean = getAvailableCommands().contains(command)
+        override fun hasNextMediaItem() = hasNext()
+        override fun hasPreviousMediaItem() = hasPrev()
+
+        override fun seekToNext() { if (hasNext()) goToItem(index + 1) else super.seekToNext() }
+        override fun seekToNextMediaItem() { if (hasNext()) goToItem(index + 1) }
+        override fun seekToPreviousMediaItem() { if (hasPrev()) goToItem(index - 1) }
+        override fun seekToPrevious() {
+            // Like most players: restart the episode, or go to the previous one if we're near the start.
+            if (hasPrev() && currentPosition < 5_000) goToItem(index - 1) else seekTo(0)
+        }
+    }
+
+    private fun goToItem(newIndex: Int) {
+        if (newIndex !in items.indices || newIndex == index) return
+        savePosition()
+        index = newIndex
+        toast(current.title)
+        playCurrent(resume = true)
     }
 
     private fun onVideoEnded() {
@@ -779,6 +826,10 @@ class PlayerActivity : BaseActivity() {
         }
         opts += "Audio track" to { trackDialog(C.TRACK_TYPE_AUDIO, "Audio") }
         opts += "Subtitles" to { if (isLive) trackDialog(C.TRACK_TYPE_TEXT, "Subtitles") else subtitleMenu() }
+        if (!isLive && items.size > 1) {
+            if (index + 1 < items.size) opts += "Next: ${items[index + 1].title}" to { goToItem(index + 1) }
+            if (index > 0) opts += "Previous: ${items[index - 1].title}" to { goToItem(index - 1) }
+        }
         opts += "Sleep timer: ${if (sleepMinutes > 0) "$sleepMinutes min" else "Off"}" to {
             val mins = listOf(0, 15, 30, 45, 60, 90, 120)
             Dialogs.choose(this, "Sleep timer", mins.map { if (it == 0) "Off" else "$it minutes" }, mins, sleepMinutes) { setSleepTimer(it) }
@@ -790,7 +841,7 @@ class PlayerActivity : BaseActivity() {
         }
         if (pipSupported() && store.pipEnabled) opts += "Picture-in-picture" to { enterPip(); Unit }
         AlertDialog.Builder(this)
-            .setTitle("Options")
+            .setTitle("Settings")
             .setItems(opts.map { it.first }.toTypedArray()) { _, which -> opts[which].second() }
             .setNegativeButton("Close", null)
             .show()
@@ -891,7 +942,7 @@ class PlayerActivity : BaseActivity() {
             swipe = Swipe.NONE
             downX = ev.x
             downY = ev.y
-            gestureAllowed = store.playerGestures && !startsOnControls(ev)
+            gestureAllowed = store.playerGestures && !tvMode && !startsOnControls(ev)
         }
         if (!gestureAllowed) return super.dispatchTouchEvent(ev)
 

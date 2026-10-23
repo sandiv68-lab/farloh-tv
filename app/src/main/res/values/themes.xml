@@ -29,6 +29,7 @@
 
     <style name="Theme.Farloh.Player" parent="Theme.Farloh">
         <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:colorBackground">@android:color/black</item>
         <item name="android:windowFullscreen">true</item>
     </style>
 

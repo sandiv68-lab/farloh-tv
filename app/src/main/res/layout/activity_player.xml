@@ -17,8 +17,7 @@
         <TextView android:id="@+id/vodTitle" android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:ellipsize="end" android:maxLines="2" android:textColor="@color/text"
             android:textSize="20sp" android:textStyle="bold" />
-        <Button android:id="@+id/vodVideo" style="@style/Btn" android:layout_marginEnd="8dp" android:text="Options" />
-        <Button android:id="@+id/vodSubs" style="@style/Btn" android:layout_marginEnd="8dp" android:text="Subtitles" />
+        <Button android:id="@+id/vodVideo" style="@style/Btn" android:layout_marginEnd="8dp" android:text="Settings" />
         <ImageButton android:id="@+id/vodExternal" style="@style/IconBtnBox" android:src="@drawable/ic_external"
             android:contentDescription="Open in MX Player / VLC" />
     </LinearLayout>
@@ -54,8 +53,7 @@
             android:layout_marginTop="14dp" android:scrollbars="none">
             <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal">
                 <Button android:id="@+id/btnChannels" style="@style/Btn" android:text="☰  Channels" />
-                <Button android:id="@+id/btnVideo" style="@style/Btn" android:layout_marginStart="8dp" android:text="Options" />
-                <Button android:id="@+id/btnSubs" style="@style/Btn" android:layout_marginStart="8dp" android:text="Subtitles" />
+                <Button android:id="@+id/btnVideo" style="@style/Btn" android:layout_marginStart="8dp" android:text="Settings" />
                 <ImageButton android:id="@+id/btnFav" style="@style/IconBtnBox" android:layout_marginStart="8dp"
                     android:src="@drawable/ic_star_border" android:contentDescription="Favourite" />
                 <ImageButton android:id="@+id/btnExternal" style="@style/IconBtnBox" android:layout_marginStart="8dp"
