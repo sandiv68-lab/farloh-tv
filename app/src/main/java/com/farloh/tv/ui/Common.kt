@@ -94,16 +94,6 @@ open class BaseActivity : AppCompatActivity() {
         if (store.orientation == "auto") requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
     }
 
-    override fun onResume() {
-        super.onResume()
-        MiniPlayer.attach(this)
-    }
-
-    override fun onPause() {
-        super.onPause()
-        MiniPlayer.detach(this)
-    }
-
     override fun setContentView(layoutResID: Int) {
         super.setContentView(layoutResID)
         applySafeInsets()

@@ -194,11 +194,9 @@ class SettingsActivity : BaseActivity() {
         }
         r += Row.Item("Subtitle language", label(LANGUAGES, store.subtitleLanguage)
             .ifEmpty { store.subtitleLanguage.uppercase() }, "Used when Subtitles is On") { chooseLanguage() }
-        val systemPip = Build.VERSION.SDK_INT >= 26 &&
-            packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)
         r += Row.Item("Picture-in-picture", onOff(store.pipEnabled),
-            if (systemPip) "Keep watching in a small window when you leave the player"
-            else "This device has no Android picture-in-picture, so Farloh TV uses its own mini player while you browse the app") {
+            if (Build.VERSION.SDK_INT >= 26) "Keep watching in a small window when you press Home or Back in the player"
+            else "Needs Android 8 or newer") {
             store.pipEnabled = !store.pipEnabled; refresh()
         }
         r += Row.Item("Recently added limit", limitLabel(store.recentLimit), "Size of the \"Recently added\" group in Movies and TV Shows") {

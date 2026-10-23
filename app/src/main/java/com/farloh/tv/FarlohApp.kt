@@ -19,10 +19,6 @@ class FarlohApp : Application(), ImageLoaderFactory {
         com.farloh.tv.net.AppDns.init(this)
         com.farloh.tv.net.AppProxy.init(this)
         com.farloh.tv.data.Notify.schedule(this)
-        // Leaving the app (Home button etc.) stops the mini player rather than playing on unseen.
-        androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
-            override fun onStop(owner: androidx.lifecycle.LifecycleOwner) = com.farloh.tv.ui.MiniPlayer.close(this@FarlohApp)
-        })
         com.farloh.tv.data.Xtream.epgTtlMs = com.farloh.tv.data.Store.get(this).epgMinutes * 60_000L
         // An update was installed (or abandoned): the downloaded APK isn't needed any more.
         cacheDir.resolve("updates").deleteRecursively()

@@ -181,7 +181,7 @@ class PlayerActivity : BaseActivity() {
                 when {
                     locked -> showUnlock()
                     channelPanel.visibility == View.VISIBLE -> hidePanel()
-                    store.pipOnBack && store.pipEnabled && player?.isPlaying == true && (enterPip() || goMini()) -> Unit
+                    store.pipOnBack && store.pipEnabled && player?.isPlaying == true && enterPip() -> Unit
                     else -> finish()
                 }
             }
@@ -337,8 +337,10 @@ class PlayerActivity : BaseActivity() {
 
     // ---------------- Picture-in-picture ----------------
 
-    private fun pipSupported(): Boolean =
-        Build.VERSION.SDK_INT >= 26 && packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+    /** Android 8+. Not only devices that report PiP: some TV boxes can do it without saying so, so we just try. */
+    private fun pipSupported(): Boolean = Build.VERSION.SDK_INT >= 26
+
+    private fun pipReported(): Boolean = packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
 
     private fun pipRatio(): Rational {
         val vs = player?.videoSize
@@ -367,39 +369,46 @@ class PlayerActivity : BaseActivity() {
         return Rect(left, top, left + w, top + h)
     }
 
-    private var pipError: String? = null
-
-    private fun enterPip(): Boolean {
-        if (!pipSupported() || Build.VERSION.SDK_INT < 26) return false
-        // First with the zoom hint, then plain (as in the first versions) if Android says no.
-        for (withHint in listOf(true, false)) {
+    /** [explain] = show the full reason in a box (from the menu); otherwise a short message (Back / Home). */
+    private fun enterPip(explain: Boolean = false): Boolean {
+        if (Build.VERSION.SDK_INT < 26) { toast("Picture-in-picture needs Android 8 or newer", long = true); return false }
+        var error: String? = null
+        // 1) with the zoom hint (phones), 2) plain 16:9-style, 3) plain 16:9 (exactly as the first versions did).
+        val attempts = listOf<() -> PictureInPictureParams?>(
+            { videoRect()?.let { PictureInPictureParams.Builder().setAspectRatio(pipRatio()).setSourceRectHint(it).build() } },
+            { PictureInPictureParams.Builder().setAspectRatio(pipRatio()).build() },
+            { PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build() },
+        )
+        for (make in attempts) {
+            val params = try { make() } catch (e: Exception) { error = e.message; null } ?: continue
             try {
-                val b = PictureInPictureParams.Builder().setAspectRatio(pipRatio())
-                if (withHint) videoRect()?.let { b.setSourceRectHint(it) } ?: continue
-                if (enterPictureInPictureMode(b.build())) return true
+                if (enterPictureInPictureMode(params)) return true
+                error = "Android said no"
             } catch (e: Exception) {
-                pipError = e.message ?: e.javaClass.simpleName
+                error = e.message ?: e.javaClass.simpleName
             }
         }
-        pipError?.let { toast("Picture-in-picture didn't start: $it", long = true) }
+        // Tell the user why (helps find out what this TV allows).
+        if (!explain) {
+            toast("Picture-in-picture didn't start: ${error ?: "unknown reason"}. Player Settings → Picture-in-picture shows details.", long = true)
+            return false
+        }
+        val info = "Android ${Build.VERSION.RELEASE}, PiP reported: ${if (pipReported()) "yes" else "no"}, " +
+            "PiP allowed for app: ${pipAllowedForApp()}"
+        AlertDialog.Builder(this).setTitle("Picture-in-picture didn't start")
+            .setMessage("${error ?: "Unknown reason"}\n\n$info\n\nIf \"allowed for app\" is no, turn on picture-in-picture for " +
+                "Farloh TV in Android Settings → Apps → Special app access → Picture-in-picture.")
+            .setPositiveButton("OK", null).show()
         return false
     }
 
-    /**
-     * TVs without Android's picture-in-picture: hand the playing video to Farloh TV's own mini player,
-     * which keeps it in a corner of the app while you browse.
-     */
-    private fun goMini(): Boolean {
-        val exo = player ?: return false
-        savePosition()
-        exo.removeListener(listener)
-        playerView.player = null
-        handler.removeCallbacksAndMessages(null)
-        player = null // so onStop doesn't release it
-        MiniPlayer.adopt(this, exo, items, index, PlayQueue.categoryName, isLive)
-        finish()
-        return true
-    }
+    /** Android's own per-app switch (Settings → Apps → Special app access → Picture-in-picture). */
+    private fun pipAllowedForApp(): String = try {
+        val ops = getSystemService(android.app.AppOpsManager::class.java)
+        @Suppress("DEPRECATION")
+        val mode = ops.checkOpNoThrow(android.app.AppOpsManager.OPSTR_PICTURE_IN_PICTURE, applicationInfo.uid, packageName)
+        if (mode == android.app.AppOpsManager.MODE_ALLOWED) "yes" else "no"
+    } catch (e: Exception) { "unknown" }
 
     /** Android 12+: let the system slide into picture-in-picture smoothly when going home. */
     private fun updatePipParams() {
@@ -921,8 +930,7 @@ class PlayerActivity : BaseActivity() {
             store.playerGestures = !store.playerGestures
             toast(if (store.playerGestures) "Gestures on" else "Gestures off")
         }
-        if (pipSupported()) opts += "Picture-in-picture" to { if (!enterPip()) goMini(); Unit }
-        else opts += "Mini player (keep watching while you browse)" to { goMini(); Unit }
+        if (Build.VERSION.SDK_INT >= 26) opts += "Picture-in-picture" to { enterPip(explain = true); Unit }
         AlertDialog.Builder(this)
             .setTitle("Settings")
             .setItems(opts.map { it.first }.toTypedArray()) { _, which -> opts[which].second() }
