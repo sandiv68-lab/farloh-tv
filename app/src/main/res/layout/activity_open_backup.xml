@@ -8,7 +8,7 @@
         <ImageView android:layout_width="wrap_content" android:layout_height="110dp" android:adjustViewBounds="true"
             android:src="@drawable/farloh_logo" android:contentDescription="@string/app_name" />
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="12dp"
-            android:text="Opening backup…" android:textColor="@color/text" android:textSize="18sp" />
+            android:text="Opening file…" android:textColor="@color/text" android:textSize="18sp" />
         <Button android:id="@+id/back" style="@style/Btn" android:layout_marginTop="16dp" android:text="Close" />
     </LinearLayout>
 </FrameLayout>

@@ -204,6 +204,8 @@ class BackupFlow(private val activity: BaseActivity) {
             .setNegativeButton("Cancel", null).show()
     }
 
+    fun openBytes(bytes: ByteArray) = open(bytes)
+
     private fun open(bytes: ByteArray) {
         activity.lifecycleScope.launch {
             val result = withContext(Dispatchers.Default) { runCatching { Backup.read(bytes) } }

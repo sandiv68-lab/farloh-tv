@@ -22,6 +22,7 @@ import com.farloh.tv.data.Section
 import com.farloh.tv.data.Xtream
 import com.farloh.tv.net.AppDns
 import com.farloh.tv.net.AppProxy
+import com.farloh.tv.net.OpenVpn
 import com.farloh.tv.net.Net
 import kotlinx.coroutines.launch
 
@@ -48,6 +49,8 @@ class SettingsActivity : BaseActivity() {
     }
     private var parentalUnlocked = false
     private val backup = BackupFlow(this)
+    private val vpn = VpnFlow(this) { if (::list.isInitialized) refresh() }
+    private val vpnListener: () -> Unit = { if (::list.isInitialized) refresh() }
     private var sizes: com.farloh.tv.data.StorageInfo.Sizes? = null
 
     private fun remeasure(doneMessage: String? = null) {
@@ -114,7 +117,14 @@ class SettingsActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
+        OpenVpn.listeners += vpnListener
+        OpenVpn.watch(this)
         if (::list.isInitialized) { refresh(); remeasure() }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        OpenVpn.listeners -= vpnListener
     }
 
     private fun buildGroups(): List<Group> {
@@ -246,13 +256,39 @@ class SettingsActivity : BaseActivity() {
         }
 
         r += Row.Header("Network", "network", R.drawable.ic_network,
-            "DNS: ${AppDns.describe(store)}" + if (store.proxyType != "off") " • Proxy on" else "")
+            "DNS: ${AppDns.describe(store)}" + (if (store.proxyType != "off") " • Proxy on" else "") +
+                if (OpenVpn.isConnected) " • VPN on" else "")
         r += Row.Item("DNS", AppDns.describe(store),
             "Which DNS Farloh TV uses to find your server. Encrypted presets can get around ISP DNS blocks") { chooseDns() }
         if (store.dnsMode == "custom") r += Row.Item("Custom DNS address", store.dnsCustom.ifBlank { "Not set" },
             "An IP like 8.8.8.8, or an https:// DNS-over-HTTPS address") { editCustomDns() }
         r += Row.Item("Test DNS", "", "Looks up your server's address with the chosen DNS") { testDns() }
-        r += Row.Item("Proxy (VPN provider)", AppProxy.describe(store),
+        val profile = store.vpnProfile
+        r += Row.Item("VPN", when {
+                profile == null -> "Not set up"
+                OpenVpn.isConnected -> "Connected – ${profile.name}"
+                else -> OpenVpn.describe()
+            },
+            when {
+                profile == null -> "Use your VPN (ExpressVPN, NordVPN, Surfshark, …) with its OpenVPN files. Press to set up"
+                OpenVpn.isConnected || OpenVpn.isBusy -> "Press to disconnect"
+                else -> "Press to connect to ${profile.name}"
+            }) {
+            when {
+                profile == null -> vpn.addLocation()
+                OpenVpn.isConnected || OpenVpn.isBusy -> vpn.disconnect()
+                else -> vpn.connect()
+            }
+        }
+        r += Row.Item("VPN location", profile?.name ?: "None",
+            "${Fmt.count(store.vpnProfiles.size, "location", "locations")} saved. Add .ovpn files from your VPN provider") { vpn.chooseLocation() }
+        r += Row.Item("VPN login", store.vpnUser.ifBlank { "Not set" },
+            "The manual-setup username and password from your VPN provider") { vpn.editLogin() }
+        r += Row.Item("Connect VPN when the app opens", if (store.vpnAuto) "On" else "Off", null) {
+            store.vpnAuto = !store.vpnAuto; refresh()
+        }
+        r += Row.Item("How to set up the VPN", "", "Where to find the files and login for ExpressVPN, NordVPN and others") { vpn.showHelp() }
+        r += Row.Item("Proxy (alternative to VPN)", AppProxy.describe(store),
             "SOCKS5 or HTTP proxy details from your VPN provider (e.g. NordVPN, Surfshark, PIA). Used for everything in the app") {
             chooseProxy()
         }
@@ -266,8 +302,8 @@ class SettingsActivity : BaseActivity() {
                     }
                 }
             }
-            r += Row.Item("Test proxy", "", "Shows the internet address the app appears to come from") { testProxy() }
         }
+        r += Row.Item("Check my internet address", "", "Shows where the app appears to come from (to check the VPN or proxy)") { testProxy() }
 
         r += Row.Header("Online subtitles", "subtitles", R.drawable.ic_subtitles,
             if (store.subsApiKey.isBlank()) "OpenSubtitles – not set up yet" else "OpenSubtitles – ${if (store.subsServer == "vip") "VIP server" else if (store.subsServer == "custom") "custom server" else "default server"}")
@@ -574,11 +610,11 @@ class SettingsActivity : BaseActivity() {
                     val o = runCatching { org.json.JSONObject(body) }.getOrNull()
                     val ip = o?.optString("ip").orEmpty()
                     val where = listOfNotNull(o?.optString("city")?.ifBlank { null }, o?.optString("country")?.ifBlank { null }).joinToString(", ")
-                    "Using: ${AppProxy.describe(store)}\n\nThe app appears to come from:\n$ip${if (where.isNotEmpty()) "  ($where)" else ""}\n\nAnswered in $ms ms ✓"
+                    "VPN: ${if (OpenVpn.isConnected) "connected (${store.vpnProfile?.name})" else "off"}\nProxy: ${AppProxy.describe(store)}\n\nThe app appears to come from:\n$ip${if (where.isNotEmpty()) "  ($where)" else ""}\n\nAnswered in $ms ms ✓"
                 },
                 onFailure = { e -> "Using: ${AppProxy.describe(store)}\n\nCouldn't connect through the proxy:\n${Net.friendlyError(e)}\n\nCheck the server, port and login, or turn the proxy off." },
             )
-            AlertDialog.Builder(this@SettingsActivity).setTitle("Proxy test").setMessage(msg).setPositiveButton("OK", null).show()
+            AlertDialog.Builder(this@SettingsActivity).setTitle("Internet address").setMessage(msg).setPositiveButton("OK", null).show()
         }
     }
 

@@ -28,12 +28,12 @@
             <TextView android:id="@+id/tabLive" style="@style/Tab" android:text="Live TV" />
             <TextView android:id="@+id/tabMovies" style="@style/Tab" android:layout_marginStart="8dp" android:text="Movies" />
             <TextView android:id="@+id/tabSeries" style="@style/Tab" android:layout_marginStart="8dp" android:text="TV Shows" />
-            <TextView android:id="@+id/tabGuide" style="@style/Tab" android:layout_marginStart="8dp" android:text="TV Guide" />
+            <TextView android:id="@+id/tabGuide" style="@style/Tab" android:layout_marginStart="8dp" android:text="EPG" />
             <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1" />
             <ProgressBar android:id="@+id/guideProgress" android:layout_width="24dp" android:layout_height="24dp"
                 android:layout_marginEnd="8dp" android:visibility="gone" />
             <Button android:id="@+id/guideAction" style="@style/Btn" android:drawableStart="@drawable/ic_refresh"
-                android:drawablePadding="6dp" android:minHeight="38dp" android:text="Download TV guide" android:textSize="13sp"
+                android:drawablePadding="6dp" android:minHeight="38dp" android:text="Get EPG" android:textSize="13sp"
                 android:visibility="gone" />
         </LinearLayout>
 

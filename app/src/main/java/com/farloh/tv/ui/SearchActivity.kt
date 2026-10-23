@@ -34,7 +34,8 @@ import kotlinx.coroutines.withContext
 
 /**
  * One search for the whole app. Type and press Search; results are split by the filters
- * Live TV / Movies / TV Shows / TV Guide (programme names, from the downloaded full guide).
+ * Live TV / Movies / TV Shows / EPG (programme names, from the full TV guide — fetched automatically
+ * in the background the first time you search, and again when it is more than [GUIDE_MAX_AGE] old).
  * Runs in the background on pre-built indexes, so big playlists don't freeze the screen.
  */
 class SearchActivity : BaseActivity() {
@@ -42,6 +43,8 @@ class SearchActivity : BaseActivity() {
     companion object {
         private const val LIMIT = 1000
         private const val GUIDE = "guide"
+        /** The saved guide covers about 36 hours ahead, so fetch it again after this. */
+        private const val GUIDE_MAX_AGE = 12 * 3600_000L
     }
 
     /** A TV Guide result: a programme on a channel in this playlist. */
@@ -63,6 +66,9 @@ class SearchActivity : BaseActivity() {
     private var lastQuery = ""
     private var job: Job? = null
     private var guideJob: Job? = null
+    /** Shown in the EPG tab and summary while the guide is being fetched or searched. */
+    private var guideStatus: String? = null
+    private var guideError: String? = null
     /** Favourite keys: "playlistId|section|itemId" (several playlists in the combined view). */
     private var favs: Set<String> = emptySet()
     private val views by lazy { store.viewPlaylists() }
@@ -200,7 +206,7 @@ class SearchActivity : BaseActivity() {
                 found[sec] = hits.take(LIMIT)
             }
             results = found
-            guideHits = searchGuide(text)
+            guideHits = emptyList()
             loading.visibility = View.GONE
             if (errors.isNotEmpty()) toast(errors.joinToString("\n"), long = true)
             updateTabs()
@@ -208,7 +214,44 @@ class SearchActivity : BaseActivity() {
             val order = listOf(Section.LIVE.name, Section.MOVIES.name, Section.SERIES.name, GUIDE)
             val target = if (count(shown) > 0) shown else order.firstOrNull { count(it) > 0 } ?: shown
             show(target)
+            updateGuide(text)
         }
+    }
+
+    /** Fetches the guide if it is missing or old (in the background), then searches it. The EPG count updates when done. */
+    private fun updateGuide(text: String, forceDownload: Boolean = false) {
+        val now = System.currentTimeMillis()
+        val stale = views.filter { forceDownload || !GuideIndex.exists(this, it.id) || now - GuideIndex.lastUpdated(this, it.id) > GUIDE_MAX_AGE }
+        if (stale.isNotEmpty()) {
+            if (guideJob?.isActive == true) return // already fetching; it searches lastQuery when finished
+            downloadGuide(stale)
+            return
+        }
+        if (guideJob?.isActive == true) {
+            if (guideStatus != "searching") return // fetching; it searches lastQuery when finished
+            guideJob?.cancel() // an older search: replace it
+        }
+        guideStatus = "searching"
+        refreshGuideViews()
+        var me: Job? = null
+        me = lifecycleScope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            try {
+                guideHits = searchGuide(text)
+            } finally {
+                if (guideJob === me) {
+                    guideStatus = null
+                    guideJob = null
+                    refreshGuideViews()
+                }
+            }
+        }
+        guideJob = me
+        me.start()
+    }
+
+    private fun refreshGuideViews() {
+        updateTabs()
+        if (shown == GUIDE) show(GUIDE)
     }
 
     private fun guideExists() = views.any { GuideIndex.exists(this, it.id) }
@@ -235,15 +278,20 @@ class SearchActivity : BaseActivity() {
         return all.sortedWith(compareBy<GuideHit>({ !it.programme.isNow(now) }, { it.programme.start })).take(LIMIT)
     }
 
-    private fun count(key: String): Int = if (key == GUIDE) guideHits.size
+    private fun count(key: String): Int = if (key == GUIDE) (if (guideStatus != null) -1 else guideHits.size)
         else results[Section.valueOf(key)]?.size ?: 0
 
     private fun updateTabs() {
         val searched = lastQuery.isNotEmpty()
         for ((key, tab) in tabViews) {
-            val label = if (key == GUIDE) "TV Guide" else Section.valueOf(key).title
+            val label = if (key == GUIDE) "EPG" else Section.valueOf(key).title
             val n = count(key)
-            tab.text = if (!searched) label else "$label ($n${if (n >= LIMIT) "+" else ""})"
+            tab.text = when {
+                !searched -> label
+                key == GUIDE && guideStatus != null -> "$label (…)"
+                key == GUIDE && guideError != null && guideHits.isEmpty() -> "$label (!)"
+                else -> "$label ($n${if (n >= LIMIT) "+" else ""})"
+            }
             tab.isSelected = key == shown
         }
         updateGuideAction()
@@ -255,7 +303,7 @@ class SearchActivity : BaseActivity() {
         guideAction.visibility = if (onGuide && !running) View.VISIBLE else View.GONE
         guideProgress.visibility = if (running) View.VISIBLE else View.GONE
         val updated = views.map { GuideIndex.lastUpdated(this, it.id) }.filter { it > 0 }.minOrNull() ?: 0L
-        guideAction.text = if (updated == 0L) "Download TV guide" else "Refresh TV guide (${Fmt.ago(updated).removePrefix("Updated ")})"
+        guideAction.text = if (updated == 0L) "Get EPG" else "Refresh EPG (${Fmt.ago(updated).removePrefix("Updated ")})"
     }
 
     private fun show(key: String) {
@@ -266,13 +314,21 @@ class SearchActivity : BaseActivity() {
             resultsRv.adapter = guideAdapter
             guideAdapter.submit(guideHits)
             when {
-                !guideExists() -> {
+                lastQuery.isEmpty() -> {
                     summary.text = "Search programme names across all channels"
-                    setEmpty("To search the TV guide, download it once with \"Download TV guide\" (top right).\n" +
-                        "It can take a minute on big playlists. Refresh it whenever you like.")
+                    setEmpty("Type a programme name and press Search.\nThe EPG (TV guide) is fetched automatically the first time.")
                     return
                 }
-                lastQuery.isEmpty() -> { summary.text = ""; setEmpty("Type a programme name and press Search."); return }
+                guideStatus != null && guideHits.isEmpty() -> {
+                    summary.text = guideStatus?.takeIf { it != "searching" } ?: "Searching the EPG…"
+                    setEmpty("Getting the EPG… The other results are ready to browse meanwhile;\nthe EPG count updates by itself when this finishes.")
+                    return
+                }
+                guideError != null && !guideExists() -> {
+                    summary.text = ""
+                    setEmpty("Couldn't get the EPG: $guideError\nPress \"Get EPG\" (top right) to try again.")
+                    return
+                }
             }
             summary.text = if (guideHits.size >= LIMIT) "First $LIMIT programmes matching \"$lastQuery\""
                            else "${Fmt.count(guideHits.size, "programme", "programmes")} matching \"$lastQuery\" (on now and next 36 hours)"
@@ -310,19 +366,23 @@ class SearchActivity : BaseActivity() {
 
     // ---------------- TV guide download ----------------
 
-    private fun downloadGuide() {
+    /** Fetches the guide for [targets] (default: every playlist on screen) in the background, then searches it. */
+    private fun downloadGuide(targets: List<com.farloh.tv.data.Playlist> = views) {
         if (guideJob?.isActive == true) return
-        summary.text = "Downloading TV guide…"
+        guideError = null
+        guideStatus = "Getting the EPG…"
+        refreshGuideViews()
         guideJob = lifecycleScope.launch {
-            updateGuideAction()
             try {
-                var n = 0
                 val errors = ArrayList<String>()
-                for (pl in views) {
+                for (pl in targets) {
                     val who = if (combined) " (${pl.name})" else ""
                     try {
-                        n += GuideIndex.download(this@SearchActivity, pl.id) { mb ->
-                            runOnUiThread { summary.text = "Downloading TV guide$who… $mb MB" }
+                        GuideIndex.download(this@SearchActivity, pl.id) { mb ->
+                            runOnUiThread {
+                                guideStatus = "Getting the EPG$who… $mb MB"
+                                if (shown == GUIDE) summary.text = guideStatus
+                            }
                         }
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
@@ -330,17 +390,15 @@ class SearchActivity : BaseActivity() {
                         errors += (if (combined) "${pl.name}: " else "") + Net.friendlyError(e)
                     }
                 }
-                if (errors.isNotEmpty()) toast("Couldn't download the TV guide: " + errors.joinToString("\n"), long = true)
-                if (errors.size < views.size) toast("TV guide ready: ${Fmt.count(n, "programme", "programmes")}")
-                if (lastQuery.isNotEmpty()) guideHits = searchGuide(lastQuery)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                toast("Couldn't download the TV guide: ${Net.friendlyError(e)}", long = true)
+                if (errors.isNotEmpty()) guideError = errors.joinToString("\n")
+                if (lastQuery.isNotEmpty()) {
+                    guideStatus = "searching"
+                    guideHits = searchGuide(lastQuery)
+                }
             } finally {
+                guideStatus = null
                 guideJob = null
-                updateTabs()
-                if (shown == GUIDE) show(GUIDE)
+                if (!isDestroyed) refreshGuideViews()
             }
         }
     }
@@ -362,7 +420,7 @@ class SearchActivity : BaseActivity() {
         val channels = guideHits.map { it.channel }.distinctBy { "${it.playlistId}|${it.id}" }
         val pos = channels.indexOfFirst { it === hit.channel || (it.id == hit.channel.id && it.playlistId == hit.channel.playlistId) }.coerceAtLeast(0)
         Launcher.play(this, channels.map { livePlayable(it) }, pos, external = if (external) true else null,
-            categoryName = "TV Guide: $lastQuery")
+            categoryName = "EPG: $lastQuery")
     }
 
     private fun openGuideHit(hit: GuideHit) {

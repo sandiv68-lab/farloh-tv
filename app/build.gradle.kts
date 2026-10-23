@@ -73,6 +73,7 @@ android {
     buildFeatures {
         viewBinding = false
         buildConfig = true
+        aidl = true // remote control of "OpenVPN for Android" (VPN feature)
     }
 }
 

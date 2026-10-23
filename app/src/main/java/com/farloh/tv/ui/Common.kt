@@ -106,7 +106,9 @@ open class BaseActivity : AppCompatActivity() {
         ViewCompat.setOnApplyWindowInsetsListener(safe) { v, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
-            v.setPadding(l + bars.left, t + bars.top, r + bars.right, b + maxOf(bars.bottom, ime.bottom))
+            // Same space on both sides (camera notch on one side, navigation bar on the other), so content stays centred.
+            val side = maxOf(bars.left, bars.right)
+            v.setPadding(l + side, t + bars.top, r + side, b + maxOf(bars.bottom, ime.bottom))
             insets
         }
         ViewCompat.requestApplyInsets(safe)

@@ -302,6 +302,39 @@ class Store private constructor(context: Context) {
             if (value.isEmpty()) remove("proxy_password") else putString("proxy_password", Crypto.encrypt(value))
         }.apply()
 
+    // ---- VPN (OpenVPN profiles, run by the "OpenVPN for Android" app) ----
+    class VpnProfile(val id: String, val name: String, val config: String)
+
+    /** Saved VPN locations (.ovpn files), stored encrypted. */
+    var vpnProfiles: List<VpnProfile>
+        get() {
+            val raw = prefs.getString("vpn_profiles", null)?.let { Crypto.decrypt(it) } ?: return emptyList()
+            return runCatching {
+                val a = JSONArray(raw)
+                (0 until a.length()).map { i ->
+                    val o = a.getJSONObject(i); VpnProfile(o.getString("id"), o.getString("name"), o.getString("config"))
+                }
+            }.getOrDefault(emptyList())
+        }
+        set(value) {
+            val a = JSONArray()
+            value.forEach { a.put(JSONObject().put("id", it.id).put("name", it.name).put("config", it.config)) }
+            prefs.edit().apply {
+                if (value.isEmpty()) remove("vpn_profiles") else putString("vpn_profiles", Crypto.encrypt(a.toString()))
+            }.apply()
+        }
+    var vpnActiveId: String by StringPref("vpn_active", "")
+    val vpnProfile: VpnProfile? get() = vpnProfiles.let { list -> list.firstOrNull { it.id == vpnActiveId } ?: list.firstOrNull() }
+    /** The VPN's "manual setup" username (not the account email for ExpressVPN / NordVPN). */
+    var vpnUser: String by StringPref("vpn_user", "")
+    var vpnPassword: String
+        get() = prefs.getString("vpn_password", null)?.let { Crypto.decrypt(it) } ?: ""
+        set(value) = prefs.edit().apply {
+            if (value.isEmpty()) remove("vpn_password") else putString("vpn_password", Crypto.encrypt(value))
+        }.apply()
+    /** Connect the VPN when Farloh TV opens. */
+    var vpnAuto: Boolean by BoolPref("vpn_auto", false)
+
     /** "landscape" (default) or "auto" (follow the phone's rotation). */
     var orientation: String by StringPref("orientation", "landscape")
     /** App size in percent of the device's standard size, ignoring the phone's own display-size setting. */
@@ -438,7 +471,7 @@ class Store private constructor(context: Context) {
         private const val KEY_PLAYLISTS = "playlists"
         private const val KEY_ACTIVE = "active_playlist"
         /** Stored encrypted with this device's key; exported in plain text inside the (password-protected) backup. */
-        private val SECRET_KEYS = setOf(KEY_PLAYLISTS, "subs_password", "subs_api_key", "proxy_password")
+        private val SECRET_KEYS = setOf(KEY_PLAYLISTS, "subs_password", "subs_api_key", "proxy_password", "vpn_profiles", "vpn_password")
         /** Per-device screen settings that a restore leaves as they are. */
         private val DEVICE_KEYS = setOf("device_mode", "ui_zoom", "text_zoom", "orientation")
 

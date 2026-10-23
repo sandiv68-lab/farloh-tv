@@ -22,6 +22,11 @@
             <data android:mimeType="video/*" />
         </intent>
         <package android:name="com.mxtech.videoplayer.ad" />
+        <!-- OpenVPN for Android: runs the VPN for Settings > Network > VPN -->
+        <package android:name="de.blinkt.openvpn" />
+        <intent>
+            <action android:name="de.blinkt.openvpn.api.IOpenVPNAPIService" />
+        </intent>
         <package android:name="com.mxtech.videoplayer.pro" />
         <package android:name="org.videolan.vlc" />
         <!-- File manager apps that can hand over a backup file (Android TV has no system picker). -->
@@ -67,7 +72,7 @@
             android:name=".ui.OpenBackupActivity"
             android:exported="true"
             android:screenOrientation="sensorLandscape"
-            android:label="Restore Farloh TV backup">
+            android:label="Farloh TV">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -83,6 +88,7 @@
                 <data android:scheme="file" />
                 <data android:mimeType="application/octet-stream" />
                 <data android:mimeType="text/plain" />
+                <data android:mimeType="application/x-openvpn-profile" />
             </intent-filter>
         </activity>
         <activity android:name=".ui.NewsActivity" android:exported="false" android:screenOrientation="sensorLandscape" />

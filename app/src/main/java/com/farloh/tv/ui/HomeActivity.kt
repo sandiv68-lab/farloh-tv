@@ -3,6 +3,7 @@ package com.farloh.tv.ui
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -31,6 +32,7 @@ class HomeActivity : BaseActivity() {
     }
 
     private val tiles = HashMap<Section, Tile>()
+    private val vpn = VpnFlow(this)
     private val busy = HashSet<Section>()
     private lateinit var playlistButton: Button
 
@@ -56,6 +58,7 @@ class HomeActivity : BaseActivity() {
         }
 
         sizeTiles()
+        if (store.vpnAuto && store.vpnProfile != null) com.farloh.tv.net.OpenVpn.autoConnect(this) { vpn.connect(quiet = true) }
 
         playlistButton = findViewById(R.id.playlist)
         playlistButton.setOnClickListener { showPlaylists() }
@@ -119,24 +122,48 @@ class HomeActivity : BaseActivity() {
     }
 
     /**
-     * Fixed-size tiles that fit the screen with room around them (so the focus outline is visible),
-     * capped so they don't fill a big TV. They follow Settings → Screen → App size.
+     * Sizes the three tiles to the space actually left on screen (after the notch, navigation bar, header and
+     * the app/text size settings), capped so they don't fill a big TV and leave room for the focus outline.
+     * Measured after layout because on Android 15 the screen size reported to apps includes the system bars.
      */
     private fun sizeTiles() {
-        val w = resources.configuration.screenWidthDp
-        val h = resources.configuration.screenHeightDp
-        val byWidth = (w - 40 - 3 * 36) / 3          // three tiles + margins across
-        val byHeight = ((h - 190) / 0.72f).toInt()    // header + refresh buttons below
-        val tileW = minOf(230, byWidth, byHeight).coerceAtLeast(130)
-        val tileH = (tileW * 0.72f).toInt()
-        for (tile in tiles.values) {
-            tile.root.layoutParams = tile.root.layoutParams.apply { width = dp(tileW) }
-            tile.card.layoutParams = tile.card.layoutParams.apply { height = dp(tileH) }
-            if (tileW < 190) {
-                tile.icon.layoutParams = tile.icon.layoutParams.apply { width = dp(36); height = dp(36) }
-                tile.title.textSize = 17f
-            }
+        val area = findViewById<View>(R.id.tiles).parent as View
+        area.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or, ob ->
+            if (r - l != or - ol || b - t != ob - ot) area.post { fitTiles(area) }
         }
+        area.post { fitTiles(area) }
+    }
+
+    private var lastTileW = -1
+
+    private fun fitTiles(area: View) {
+        val d = resources.displayMetrics.density
+        val wDp = (area.width / d).toInt()
+        val hDp = (area.height / d).toInt()
+        if (wDp <= 0 || hDp <= 0) return
+        val margin = if (wDp < 560) 8 else 18                    // each side of each tile
+        val byWidth = (wDp - 3 * 2 * margin - 8) / 3
+        val refreshRow = (14 + 38 * resources.configuration.fontScale).toInt() + 8 // gap + button + focus room
+        val byHeight = ((hDp - refreshRow - 8) / 0.72f).toInt()
+        val tileW = minOf(230, byWidth, byHeight).coerceAtLeast(80)
+        if (tileW == lastTileW) return
+        lastTileW = tileW
+        val tileH = (tileW * 0.72f).toInt()
+        val small = tileW < 190
+        val tiny = tileW < 140
+        for (tile in tiles.values) {
+            tile.root.layoutParams = (tile.root.layoutParams as ViewGroup.MarginLayoutParams).apply {
+                width = dp(tileW); marginStart = dp(margin); marginEnd = dp(margin)
+            }
+            tile.card.layoutParams = tile.card.layoutParams.apply { height = dp(tileH) }
+            tile.card.setPadding(dp(if (tiny) 6 else 14), dp(if (tiny) 4 else 14), dp(if (tiny) 6 else 14), dp(if (tiny) 4 else 14))
+            val icon = if (tiny) 26 else if (small) 36 else 48
+            tile.icon.layoutParams = tile.icon.layoutParams.apply { width = dp(icon); height = dp(icon) }
+            tile.title.textSize = if (tiny) 14f else if (small) 17f else 21f
+            tile.count.textSize = if (tiny) 11f else 13f
+            tile.updated.textSize = if (tiny) 10f else 12f
+        }
+        area.requestLayout()
     }
 
     private fun showHeader() {
