@@ -49,8 +49,6 @@
                 <TextView android:id="@+id/empty" android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:layout_gravity="center" android:gravity="center" android:padding="24dp"
                     android:textColor="@color/text2" android:textSize="16sp" android:visibility="gone" />
-                <ProgressBar android:id="@+id/loading" android:layout_width="56dp" android:layout_height="56dp"
-                    android:layout_gravity="center" android:visibility="gone" />
             </FrameLayout>
 
             <LinearLayout android:id="@+id/epgPanel" android:layout_width="230dp" android:layout_height="match_parent"
@@ -68,4 +66,8 @@
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>
+
+    <!-- Loading circle in the middle of the screen (not of the list area). -->
+    <ProgressBar android:id="@+id/loading" android:layout_width="56dp" android:layout_height="56dp"
+        android:layout_gravity="center" android:visibility="gone" />
 </FrameLayout>

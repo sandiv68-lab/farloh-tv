@@ -33,6 +33,7 @@ class HomeActivity : BaseActivity() {
 
     private val tiles = HashMap<Section, Tile>()
     private val vpn = VpnFlow(this)
+    private val permissions = AppPermissions(this)
     private val busy = HashSet<Section>()
     private lateinit var playlistButton: Button
 
@@ -58,6 +59,7 @@ class HomeActivity : BaseActivity() {
         }
 
         sizeTiles()
+        if (savedInstanceState == null) permissions.askOnce()
         if (store.vpnAuto && store.vpnProfile != null) com.farloh.tv.net.OpenVpn.autoConnect(this) { vpn.connect(quiet = true) }
 
         playlistButton = findViewById(R.id.playlist)
@@ -113,6 +115,7 @@ class HomeActivity : BaseActivity() {
             runCatching { com.farloh.tv.data.Feed.refresh(this@HomeActivity, force) }
             if (isFinishing) return@launch
             updateBell()
+            com.farloh.tv.data.Notify.markShown(this@HomeActivity) // the app shows these itself; no notification needed
             val update = com.farloh.tv.data.Feed.availableUpdate(this@HomeActivity) ?: return@launch
             if (com.farloh.tv.data.Feed.shouldPrompt(this@HomeActivity, update.version)) {
                 com.farloh.tv.data.Feed.setPrompted(this@HomeActivity, update.version)

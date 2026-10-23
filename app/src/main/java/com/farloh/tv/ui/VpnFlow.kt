@@ -32,13 +32,7 @@ class VpnFlow(private val activity: BaseActivity, private val onChanged: () -> U
         else activity.toast("The VPN needs that permission to connect.", long = true)
     }
 
-    private val openDoc = activity.registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) importUri(uri)
-    }
-
-    private val getContent = activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
-        res.data?.data?.let { importUri(it) }
-    }
+    private val picker = FilePicker(activity, listOf("ovpn", "conf"), ".ovpn file") { uri -> importUri(uri) }
 
     // ======================= Connect =======================
 
@@ -143,28 +137,7 @@ class VpnFlow(private val activity: BaseActivity, private val onChanged: () -> U
             .show()
     }
 
-    private fun pickFile() {
-        if (!activity.tvMode) {
-            try { openDoc.launch(arrayOf("*/*")); return } catch (e: ActivityNotFoundException) { /* fall through */ }
-        }
-        val intent = Intent(Intent.ACTION_GET_CONTENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE)
-        if (activity.packageManager.queryIntentActivities(intent, 0).isEmpty()) {
-            noPicker(); return
-        }
-        try {
-            getContent.launch(Intent.createChooser(intent, "Open the .ovpn file with"))
-        } catch (e: ActivityNotFoundException) {
-            noPicker()
-        }
-    }
-
-    private fun noPicker() {
-        AlertDialog.Builder(activity).setTitle("No file app found")
-            .setMessage("Install a file manager (e.g. File Commander or X-plore), or open the .ovpn file in one and choose Farloh TV, " +
-                "or use \"From a web link\".")
-            .setPositiveButton("From a web link") { _, _ -> addFromLink() }
-            .setNegativeButton("Close", null).show()
-    }
+    private fun pickFile() = picker.pick()
 
     private fun addFromLink() {
         Dialogs.input(activity, "Web link to the .ovpn file", "https://") { url ->
@@ -206,7 +179,7 @@ class VpnFlow(private val activity: BaseActivity, private val onChanged: () -> U
                 }
             }
             result.onSuccess { (name, text) -> importText(text, name) }
-            result.onFailure { activity.toast("Couldn't open that file: ${it.message}", long = true) }
+            result.onFailure { if (it is SecurityException || it is java.io.IOException) picker.cantRead() else activity.toast("Couldn't open that file: ${it.message}", long = true) }
         }
     }
 

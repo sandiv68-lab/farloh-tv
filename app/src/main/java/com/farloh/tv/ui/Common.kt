@@ -144,9 +144,50 @@ class SimpleAdapter<T>(
     var onLongClick: ((T, Int) -> Unit)? = null
     var onFocus: ((T, Int) -> Unit)? = null
 
+    private var recycler: RecyclerView? = null
+
+    /** Replaces the list. If a row had the focus (TV remote), the focus stays on that row instead of jumping away. */
     fun submit(list: List<T>) {
+        val rv = recycler
+        val focused = rv?.focusedChild?.let { rv.getChildAdapterPosition(it) } ?: RecyclerView.NO_POSITION
         items = list
         notifyDataSetChanged()
+        if (rv != null && focused != RecyclerView.NO_POSITION && list.isNotEmpty()) {
+            val target = focused.coerceAtMost(list.size - 1)
+            // After the list has been laid out again, put the focus back on the same row.
+            rv.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+                override fun onGlobalLayout() {
+                    rv.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                    val v = rv.layoutManager?.findViewByPosition(target)
+                    if (v != null) v.requestFocus()
+                    else {
+                        rv.scrollToPosition(target)
+                        rv.post { rv.layoutManager?.findViewByPosition(target)?.requestFocus() }
+                    }
+                }
+            })
+        }
+    }
+
+    /**
+     * Leaves room around the list so the orange focus outline and the zoom on focus aren't cut off
+     * at the edges (first row, left/right sides), and lets the focused item draw over its neighbours.
+     */
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+        recycler = recyclerView
+        if (!interactive || recyclerView.getTag(R.id.focus_room) != null) return
+        recyclerView.setTag(R.id.focus_room, true)
+        val room = (recyclerView.resources.displayMetrics.density * (if (focusScale >= 1.05f) 9 else 6)).toInt()
+        recyclerView.clipToPadding = false
+        recyclerView.clipChildren = false
+        recyclerView.setPadding(
+            recyclerView.paddingLeft + room, recyclerView.paddingTop + room,
+            recyclerView.paddingRight + room, recyclerView.paddingBottom + room,
+        )
+    }
+
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+        if (recycler === recyclerView) recycler = null
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
@@ -161,8 +202,10 @@ class SimpleAdapter<T>(
             val cb = onLongClick
             if (cb != null && p != RecyclerView.NO_POSITION && p < items.size) { cb(items[p], p); true } else false
         }
+        vh.itemView.outlineProvider = null // raise on focus without a shadow
         vh.itemView.setOnFocusChangeListener { v, hasFocus ->
             v.animate().scaleX(if (hasFocus) focusScale else 1f).scaleY(if (hasFocus) focusScale else 1f)
+                .translationZ(if (hasFocus) 8f * v.resources.displayMetrics.density else 0f)
                 .setDuration(120).start()
             val p = vh.bindingAdapterPosition
             if (hasFocus && p != RecyclerView.NO_POSITION && p < items.size) onFocus?.invoke(items[p], p)

@@ -95,6 +95,7 @@ dependencies {
     // FFmpeg software audio decoders (AC3, E-AC3, DTS, TrueHD...) for the HW+ / SW decoder modes.
     implementation("org.jellyfin.media3:media3-ffmpeg-decoder:$media3+1")
     implementation("io.coil-kt:coil:2.7.0")
+    implementation("androidx.work:work-runtime-ktx:2.9.1") // background check for updates / messages
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.0")
 }

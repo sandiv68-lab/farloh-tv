@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -8,6 +9,11 @@
     <!-- Only for saving/finding backups in Download/ on older devices that have no file picker. -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+    <!-- Android 11+: lets the built-in file browser find backups / VPN files anywhere (asked for, never required). -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <!-- Android 13+: notifications for new versions and messages. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Works on Android TV / Fire TV (remote) as well as phones and tablets (touch). -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -91,6 +97,7 @@
                 <data android:mimeType="application/x-openvpn-profile" />
             </intent-filter>
         </activity>
+        <activity android:name=".ui.FileBrowserActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
         <activity android:name=".ui.NewsActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
         <activity android:name=".ui.SearchActivity" android:exported="false" android:screenOrientation="sensorLandscape"
             android:windowSoftInputMode="adjustResize|stateVisible" />

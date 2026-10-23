@@ -332,6 +332,9 @@ class Store private constructor(context: Context) {
         set(value) = prefs.edit().apply {
             if (value.isEmpty()) remove("vpn_password") else putString("vpn_password", Crypto.encrypt(value))
         }.apply()
+    /** The first-start "Allow notifications / files" question has been shown on this device. */
+    var permissionsAsked: Boolean by BoolPref("permissions_asked", false)
+
     /** Connect the VPN when Farloh TV opens. */
     var vpnAuto: Boolean by BoolPref("vpn_auto", false)
 
@@ -473,7 +476,7 @@ class Store private constructor(context: Context) {
         /** Stored encrypted with this device's key; exported in plain text inside the (password-protected) backup. */
         private val SECRET_KEYS = setOf(KEY_PLAYLISTS, "subs_password", "subs_api_key", "proxy_password", "vpn_profiles", "vpn_password")
         /** Per-device screen settings that a restore leaves as they are. */
-        private val DEVICE_KEYS = setOf("device_mode", "ui_zoom", "text_zoom", "orientation")
+        private val DEVICE_KEYS = setOf("device_mode", "ui_zoom", "text_zoom", "orientation", "permissions_asked")
 
         fun defaultName(account: Account): String =
             runCatching { android.net.Uri.parse(account.server).host }.getOrNull()?.takeIf { it.isNotBlank() } ?: account.username

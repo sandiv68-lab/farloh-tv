@@ -50,6 +50,7 @@ class SettingsActivity : BaseActivity() {
     private var parentalUnlocked = false
     private val backup = BackupFlow(this)
     private val vpn = VpnFlow(this) { if (::list.isInitialized) refresh() }
+    private val permissions = AppPermissions(this) { if (::list.isInitialized) refresh() }
     private val vpnListener: () -> Unit = { if (::list.isInitialized) refresh() }
     private var sizes: com.farloh.tv.data.StorageInfo.Sizes? = null
 
@@ -410,6 +411,16 @@ class SettingsActivity : BaseActivity() {
                     finish()
                 }
             }
+        }
+
+        r += Row.Item("Notifications", if (com.farloh.tv.data.Notify.allowed(this)) "Allowed" else "Off",
+            "Tells you about new versions and messages, even when the app is closed") { permissions.askNotifications() }
+        r += Row.Item("File access", when {
+                StorageAccess.granted(this) -> "Allowed"
+                !StorageAccess.canAsk(this) -> "Not offered on this device"
+                else -> "Not allowed"
+            }, "Lets the built-in browser find backup and VPN files on this device and USB drives") {
+            if (StorageAccess.granted(this)) toast("File access is already allowed") else permissions.askFiles()
         }
 
         val sz = sizes
