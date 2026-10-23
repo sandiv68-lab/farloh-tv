@@ -21,6 +21,7 @@ import com.farloh.tv.data.OpenSubtitles
 import com.farloh.tv.data.Section
 import com.farloh.tv.data.Xtream
 import com.farloh.tv.net.AppDns
+import com.farloh.tv.net.AppProxy
 import com.farloh.tv.net.Net
 import kotlinx.coroutines.launch
 
@@ -244,12 +245,29 @@ class SettingsActivity : BaseActivity() {
             }
         }
 
-        r += Row.Header("Network", "network", R.drawable.ic_network, "DNS: ${AppDns.describe(store)}")
+        r += Row.Header("Network", "network", R.drawable.ic_network,
+            "DNS: ${AppDns.describe(store)}" + if (store.proxyType != "off") " • Proxy on" else "")
         r += Row.Item("DNS", AppDns.describe(store),
             "Which DNS Farloh TV uses to find your server. Encrypted presets can get around ISP DNS blocks") { chooseDns() }
         if (store.dnsMode == "custom") r += Row.Item("Custom DNS address", store.dnsCustom.ifBlank { "Not set" },
             "An IP like 8.8.8.8, or an https:// DNS-over-HTTPS address") { editCustomDns() }
         r += Row.Item("Test DNS", "", "Looks up your server's address with the chosen DNS") { testDns() }
+        r += Row.Item("Proxy (VPN provider)", AppProxy.describe(store),
+            "SOCKS5 or HTTP proxy details from your VPN provider (e.g. NordVPN, Surfshark, PIA). Used for everything in the app") {
+            chooseProxy()
+        }
+        if (store.proxyType != "off") {
+            r += Row.Item("Proxy login", store.proxyUser.ifBlank { "None" }, "Username and password from your VPN provider (if needed)") {
+                Dialogs.input(this, "Proxy username (leave empty if none)", store.proxyUser) { u ->
+                    store.proxyUser = u.trim()
+                    if (u.isBlank()) { store.proxyPassword = ""; AppProxy.reset(); refresh() }
+                    else Dialogs.input(this, "Proxy password", password = true) { pw ->
+                        store.proxyPassword = pw; AppProxy.reset(); refresh()
+                    }
+                }
+            }
+            r += Row.Item("Test proxy", "", "Shows the internet address the app appears to come from") { testProxy() }
+        }
 
         r += Row.Header("Online subtitles", "subtitles", R.drawable.ic_subtitles,
             if (store.subsApiKey.isBlank()) "OpenSubtitles – not set up yet" else "OpenSubtitles – ${if (store.subsServer == "vip") "VIP server" else if (store.subsServer == "custom") "custom server" else "default server"}")
@@ -517,6 +535,52 @@ class SettingsActivity : BaseActivity() {
     }
 
     // ---------------- Network ----------------
+
+    private fun chooseProxy() {
+        Dialogs.choose(this, "Proxy", listOf("Off", "SOCKS5 proxy", "HTTP proxy"), listOf("off", "socks", "http"), store.proxyType) { type ->
+            if (type == "off") { store.proxyType = "off"; AppProxy.reset(); refresh(); toast("Proxy off"); return@choose }
+            val current = if (store.proxyHost.isNotBlank()) "${store.proxyHost}:${store.proxyPort}" else ""
+            Dialogs.input(this, "Proxy server (host:port, e.g. nl123.nordvpn.com:1080)", current) { v ->
+                val text = v.trim().removePrefix("socks5://").removePrefix("socks://").removePrefix("http://").removePrefix("https://")
+                val host = text.substringBeforeLast(':').trim()
+                val port = text.substringAfterLast(':', "").trim().toIntOrNull()
+                if (host.isEmpty() || port == null || port !in 1..65535) {
+                    toast("Enter the server as host:port, for example nl123.nordvpn.com:1080", long = true); return@input
+                }
+                store.proxyHost = host; store.proxyPort = port; store.proxyType = type
+                AppProxy.reset(); refresh()
+                Dialogs.confirm(this, "Proxy login", "Does this proxy need a username and password? (VPN providers usually give you special \"service\" credentials for this.)", "Enter login") {
+                    Dialogs.input(this, "Proxy username", store.proxyUser) { u ->
+                        store.proxyUser = u.trim()
+                        Dialogs.input(this, "Proxy password", password = true) { pw ->
+                            store.proxyPassword = pw; AppProxy.reset(); refresh(); testProxy()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun testProxy() {
+        toast("Testing…")
+        lifecycleScope.launch {
+            val started = System.currentTimeMillis()
+            val result = runCatching {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Net.getString("https://ipinfo.io/json") }
+            }
+            val ms = System.currentTimeMillis() - started
+            val msg = result.fold(
+                onSuccess = { body ->
+                    val o = runCatching { org.json.JSONObject(body) }.getOrNull()
+                    val ip = o?.optString("ip").orEmpty()
+                    val where = listOfNotNull(o?.optString("city")?.ifBlank { null }, o?.optString("country")?.ifBlank { null }).joinToString(", ")
+                    "Using: ${AppProxy.describe(store)}\n\nThe app appears to come from:\n$ip${if (where.isNotEmpty()) "  ($where)" else ""}\n\nAnswered in $ms ms ✓"
+                },
+                onFailure = { e -> "Using: ${AppProxy.describe(store)}\n\nCouldn't connect through the proxy:\n${Net.friendlyError(e)}\n\nCheck the server, port and login, or turn the proxy off." },
+            )
+            AlertDialog.Builder(this@SettingsActivity).setTitle("Proxy test").setMessage(msg).setPositiveButton("OK", null).show()
+        }
+    }
 
     private fun chooseDns() {
         val labels = listOf("Device default") + AppDns.PRESETS.map { "${it.label} (encrypted)" } + "Custom…"

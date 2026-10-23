@@ -242,6 +242,17 @@ class Store private constructor(context: Context) {
     /** Custom DNS: an IP (e.g. 8.8.8.8) or an https:// DNS-over-HTTPS address. */
     var dnsCustom: String by StringPref("dns_custom", "")
 
+    /** Proxy: "off", "socks" (SOCKS5) or "http". */
+    var proxyType: String by StringPref("proxy_type", "off")
+    var proxyHost: String by StringPref("proxy_host", "")
+    var proxyPort: Int by IntPref("proxy_port", 0)
+    var proxyUser: String by StringPref("proxy_user", "")
+    var proxyPassword: String
+        get() = prefs.getString("proxy_password", null)?.let { Crypto.decrypt(it) } ?: ""
+        set(value) = prefs.edit().apply {
+            if (value.isEmpty()) remove("proxy_password") else putString("proxy_password", Crypto.encrypt(value))
+        }.apply()
+
     /** "landscape" (default) or "auto" (follow the phone's rotation). */
     var orientation: String by StringPref("orientation", "landscape")
     /** App size in percent of the device's standard size, ignoring the phone's own display-size setting. */
@@ -378,7 +389,7 @@ class Store private constructor(context: Context) {
         private const val KEY_PLAYLISTS = "playlists"
         private const val KEY_ACTIVE = "active_playlist"
         /** Stored encrypted with this device's key; exported in plain text inside the (password-protected) backup. */
-        private val SECRET_KEYS = setOf(KEY_PLAYLISTS, "subs_password", "subs_api_key")
+        private val SECRET_KEYS = setOf(KEY_PLAYLISTS, "subs_password", "subs_api_key", "proxy_password")
         /** Per-device screen settings that a restore leaves as they are. */
         private val DEVICE_KEYS = setOf("device_mode", "ui_zoom", "text_zoom", "orientation")
 

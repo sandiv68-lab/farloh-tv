@@ -70,6 +70,8 @@ object Net {
     val client: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .dns(AppDns)
+            .proxySelector(AppProxy)
+            .proxyAuthenticator(AppProxy.authenticator)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .followRedirects(true)
