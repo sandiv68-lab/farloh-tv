@@ -16,32 +16,25 @@
                 android:contentDescription="Back" />
             <EditText android:id="@+id/query" style="@style/Field" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_marginStart="8dp" android:layout_marginTop="0dp" android:drawableStart="@drawable/ic_search"
-                android:drawablePadding="10dp" android:hint="Type a channel, movie or show name"
+                android:drawablePadding="10dp" android:hint="Channel, movie, show or programme name"
                 android:imeOptions="actionSearch|flagNoExtractUi" android:inputType="text"
                 android:paddingTop="10dp" android:paddingBottom="10dp" />
+            <Button android:id="@+id/go" style="@style/Btn.Primary" android:layout_marginStart="8dp" android:text="Search" />
         </LinearLayout>
 
-        <!-- Where to search -->
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="10dp" android:gravity="center_vertical" android:orientation="horizontal">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginEnd="10dp"
-                android:text="Search in:" android:textColor="@color/text2" android:textSize="14sp" />
-            <Button android:id="@+id/inLive" style="@style/Btn" android:drawableStart="@drawable/ic_live"
-                android:drawablePadding="8dp" android:text="Live TV" />
-            <Button android:id="@+id/inMovies" style="@style/Btn" android:layout_marginStart="8dp"
-                android:drawableStart="@drawable/ic_movie" android:drawablePadding="8dp" android:text="Movies" />
-            <Button android:id="@+id/inSeries" style="@style/Btn" android:layout_marginStart="8dp"
-                android:drawableStart="@drawable/ic_series" android:drawablePadding="8dp" android:text="TV Shows" />
-            <Button android:id="@+id/inAll" style="@style/Btn.Primary" android:layout_marginStart="8dp" android:text="All" />
-        </LinearLayout>
-
-        <!-- Result tabs (after searching "All") -->
+        <!-- Filters (with result counts) -->
         <LinearLayout android:id="@+id/tabs" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="10dp" android:gravity="center_vertical" android:orientation="horizontal"
-            android:visibility="gone">
-            <TextView android:id="@+id/tabLive" style="@style/Tab" />
-            <TextView android:id="@+id/tabMovies" style="@style/Tab" android:layout_marginStart="8dp" />
-            <TextView android:id="@+id/tabSeries" style="@style/Tab" android:layout_marginStart="8dp" />
+            android:layout_marginTop="10dp" android:gravity="center_vertical" android:orientation="horizontal">
+            <TextView android:id="@+id/tabLive" style="@style/Tab" android:text="Live TV" />
+            <TextView android:id="@+id/tabMovies" style="@style/Tab" android:layout_marginStart="8dp" android:text="Movies" />
+            <TextView android:id="@+id/tabSeries" style="@style/Tab" android:layout_marginStart="8dp" android:text="TV Shows" />
+            <TextView android:id="@+id/tabGuide" style="@style/Tab" android:layout_marginStart="8dp" android:text="TV Guide" />
+            <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1" />
+            <ProgressBar android:id="@+id/guideProgress" android:layout_width="24dp" android:layout_height="24dp"
+                android:layout_marginEnd="8dp" android:visibility="gone" />
+            <Button android:id="@+id/guideAction" style="@style/Btn" android:drawableStart="@drawable/ic_refresh"
+                android:drawablePadding="6dp" android:minHeight="38dp" android:text="Download TV guide" android:textSize="13sp"
+                android:visibility="gone" />
         </LinearLayout>
 
         <TextView android:id="@+id/summary" android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -53,7 +46,7 @@
                 android:layout_height="match_parent" android:clipToPadding="false" android:paddingBottom="16dp" />
             <TextView android:id="@+id/empty" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_gravity="center" android:gravity="center" android:padding="24dp"
-                android:text="Type what you're looking for, then choose where to search."
+                android:text="Type what you're looking for and press Search."
                 android:textColor="@color/text2" android:textSize="16sp" />
             <ProgressBar android:id="@+id/loading" android:layout_width="56dp" android:layout_height="56dp"
                 android:layout_gravity="center" android:visibility="gone" />

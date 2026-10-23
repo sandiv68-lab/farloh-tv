@@ -17,6 +17,9 @@ data class Account(val server: String, val username: String, val password: Strin
         return sb.toString()
     }
 
+    /** Full TV guide (XMLTV) for every channel. Can be large. */
+    fun xmltvUrl() = "$base/xmltv.php?username=${enc(username)}&password=${enc(password)}"
+
     fun liveUrl(streamId: String, ext: String) =
         "$base/live/${seg(username)}/${seg(password)}/$streamId.$ext"
 
