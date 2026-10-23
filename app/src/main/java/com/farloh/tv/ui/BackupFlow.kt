@@ -42,6 +42,12 @@ class BackupFlow(private val activity: BaseActivity) {
         if (uri != null) readFrom(uri)
     }
 
+    /** Any app that can hand us a file: File Commander, X-plore, Google Drive, … (Android asks which). */
+    private val getContent = activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        val uri = res.data?.data
+        if (uri != null) readFrom(uri)
+    }
+
     private val storagePermission = activity.registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val next = afterPermission
         afterPermission = null
@@ -60,6 +66,7 @@ class BackupFlow(private val activity: BaseActivity) {
             } catch (e: Exception) {
                 activity.toast("Couldn't create the backup: ${e.message}", long = true); return@launch
             }
+            if (activity.tvMode) { saveToDownloads(bytes); return@launch }
             pendingBytes = bytes
             try {
                 createDoc.launch(fileName())
@@ -88,6 +95,7 @@ class BackupFlow(private val activity: BaseActivity) {
             return
         }
         activity.lifecycleScope.launch {
+            var savedUri: Uri? = null
             val where = withContext(Dispatchers.IO) {
                 runCatching {
                     if (Build.VERSION.SDK_INT >= 29) {
@@ -99,25 +107,65 @@ class BackupFlow(private val activity: BaseActivity) {
                         val uri = activity.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                             ?: error("no access")
                         activity.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                        savedUri = uri
                     } else {
                         val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "FarlohTV").apply { mkdirs() }
-                        File(dir, fileName()).writeBytes(bytes)
+                        val f = File(dir, fileName()); f.writeBytes(bytes)
+                        savedUri = Uri.fromFile(f)
                     }
                     "Download/FarlohTV/${fileName()}"
                 }.getOrNull()
             }
-            if (where != null) done("Backup saved on this device", "Saved to: $where\n\nThis device has no file picker, so the backup stays in its Download folder. Copy it somewhere safe with a file manager app if you can.")
-            else activity.toast("Couldn't save the backup on this device.", long = true)
+            if (where == null) { activity.toast("Couldn't save the backup on this device.", long = true); return@launch }
+            val b = AlertDialog.Builder(activity).setTitle("Backup saved on this device")
+                .setMessage("Saved to: $where\n\nUse a file manager (e.g. File Commander) to copy it to a USB stick or cloud storage, or press \"Send to an app\".\n\nTo restore on another device: Settings → Backup & restore → Restore, or open the file in a file manager and choose Farloh TV.")
+                .setPositiveButton("OK", null)
+            val uri = savedUri
+            if (uri != null && uri.scheme == "content") b.setNeutralButton("Send to an app") { _, _ -> share(uri) }
+            b.show()
         }
     }
 
     // ======================= Restore =======================
 
     fun startRestore() {
+        if (activity.tvMode) {
+            AlertDialog.Builder(activity).setTitle("Restore from")
+                .setItems(arrayOf("A file manager app (e.g. File Commander)", "This device's Download folder")) { _, which ->
+                    if (which == 0) pickWithApp() else restoreFromDownloads()
+                }
+                .setNegativeButton("Cancel", null).show()
+            return
+        }
         try {
             openDoc.launch(arrayOf("application/json", "application/octet-stream", "text/plain", "*/*"))
         } catch (e: ActivityNotFoundException) {
+            pickWithApp()
+        }
+    }
+
+    /** Lets the user choose which installed app provides the file. */
+    private fun pickWithApp() {
+        val intent = Intent(Intent.ACTION_GET_CONTENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE)
+        val apps = activity.packageManager.queryIntentActivities(intent, 0)
+        if (apps.isEmpty()) { restoreFromDownloads(); return }
+        try {
+            getContent.launch(Intent.createChooser(intent, "Open the backup with"))
+        } catch (e: ActivityNotFoundException) {
             restoreFromDownloads()
+        }
+    }
+
+    /** Backup file opened from a file manager ("Open with Farloh TV"). */
+    fun openFromUri(uri: Uri) = readFrom(uri)
+
+    private fun share(uri: Uri) {
+        val send = Intent(Intent.ACTION_SEND).setType("application/json")
+            .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        try {
+            activity.startActivity(Intent.createChooser(send, "Send backup to"))
+        } catch (e: ActivityNotFoundException) {
+            activity.toast("No app on this device can receive the file.")
         }
     }
 
@@ -142,7 +190,7 @@ class BackupFlow(private val activity: BaseActivity) {
             .sortedByDescending { it.lastModified() }
         if (files.isEmpty()) {
             AlertDialog.Builder(activity).setTitle("No backup found")
-                .setMessage("This device has no file picker. Put your FarlohTV-backup file in the device's Download folder, then try again.")
+                .setMessage("No FarlohTV-backup file was found in this device's Download folder.\n\nTry \"A file manager app\" instead, or open the backup file in your file manager and choose Farloh TV.")
                 .setPositiveButton("OK", null).show()
             return
         }
