@@ -46,10 +46,6 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
-import android.content.Context
-import androidx.media3.exoplayer.audio.AudioCapabilities
-import androidx.media3.exoplayer.audio.DefaultAudioSink
-import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.ExoPlayer
@@ -281,7 +277,6 @@ class PlayerActivity : BaseActivity() {
         exo.trackSelectionParameters = subtitlePreferences(exo)
         exo.addListener(listener)
         exo.playWhenReady = true
-        if (speed != 1f) exo.setPlaybackSpeed(speed)
         playerView.player = queuePlayer(exo)
         player = exo
     }
@@ -302,25 +297,13 @@ class PlayerActivity : BaseActivity() {
                 else -> all
             }
         }
-        val pcm = pcmOnly
-        return object : DefaultRenderersFactory(this) {
-            override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink? {
-                if (!pcm) return super.buildAudioSink(context, enableFloatOutput, enableAudioTrackPlaybackParams)
-                @Suppress("DEPRECATION")
-                return DefaultAudioSink.Builder(context)
-                    .setAudioCapabilities(AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES) // stereo/PCM only: no passthrough
-                    .setEnableFloatOutput(enableFloatOutput)
-                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                    .build()
-            }
-        }
+        return DefaultRenderersFactory(this)
             .setMediaCodecSelector(selector)
             .setEnableDecoderFallback(mode != "hw")
             .setExtensionRendererMode(
-                when {
-                    pcm && mode == "hw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON // FFmpeg decodes the surround sound
-                    mode == "hw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
-                    mode == "sw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+                when (mode) {
+                    "hw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
+                    "sw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
                     else -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
                 }
             )
@@ -366,22 +349,40 @@ class PlayerActivity : BaseActivity() {
         return Rational(16, 9)
     }
 
-    /** Where the video is on screen; lets Android zoom the real picture into the PiP window. */
+    /**
+     * Where the picture is on screen, with exactly the PiP shape (Android refuses or ignores a hint of a
+     * different shape). Lets the real video zoom into the PiP window. Not used on TVs.
+     */
     private fun videoRect(): Rect? {
+        if (tvMode) return null
         val v = playerView.videoSurfaceView ?: playerView
         val r = Rect()
-        return if (v.getGlobalVisibleRect(r) && r.width() > 0 && r.height() > 0) r else null
+        if (!v.getGlobalVisibleRect(r) || r.width() <= 0 || r.height() <= 0) return null
+        val ratio = pipRatio().toFloat()
+        var w = r.width(); var h = (w / ratio).toInt()
+        if (h > r.height()) { h = r.height(); w = (h * ratio).toInt() }
+        if (w <= 0 || h <= 0) return null
+        val left = r.left + (r.width() - w) / 2
+        val top = r.top + (r.height() - h) / 2
+        return Rect(left, top, left + w, top + h)
     }
+
+    private var pipError: String? = null
 
     private fun enterPip(): Boolean {
         if (!pipSupported() || Build.VERSION.SDK_INT < 26) return false
-        return try {
-            val b = PictureInPictureParams.Builder().setAspectRatio(pipRatio())
-            videoRect()?.let { b.setSourceRectHint(it) }
-            enterPictureInPictureMode(b.build())
-        } catch (e: Exception) {
-            false
+        // First with the zoom hint, then plain (as in the first versions) if Android says no.
+        for (withHint in listOf(true, false)) {
+            try {
+                val b = PictureInPictureParams.Builder().setAspectRatio(pipRatio())
+                if (withHint) videoRect()?.let { b.setSourceRectHint(it) } ?: continue
+                if (enterPictureInPictureMode(b.build())) return true
+            } catch (e: Exception) {
+                pipError = e.message ?: e.javaClass.simpleName
+            }
         }
+        pipError?.let { toast("Picture-in-picture didn't start: $it", long = true) }
+        return false
     }
 
     /**
@@ -390,7 +391,6 @@ class PlayerActivity : BaseActivity() {
      */
     private fun goMini(): Boolean {
         val exo = player ?: return false
-        if (!store.pipEnabled) return false
         savePosition()
         exo.removeListener(listener)
         playerView.player = null
@@ -401,69 +401,77 @@ class PlayerActivity : BaseActivity() {
         return true
     }
 
-    // ---------------- Playback speed ----------------
-
-    /** Chosen speed for this session (kept when the player is rebuilt or the next episode starts). */
-    private var speed = 1f
-    /**
-     * Surround sound (AC3 / E-AC3 / DTS) sent straight to the TV or amplifier ("passthrough") can't be sped up.
-     * When a different speed is chosen, the player is rebuilt to decode the sound itself.
-     */
-    private var pcmOnly = false
-
-    private fun setSpeed(s: Float) {
-        val exo = player ?: return
-        speed = s
-        val mime = exo.audioFormat?.sampleMimeType
-        val bitstream = mime in setOf(MimeTypes.AUDIO_AC3, MimeTypes.AUDIO_E_AC3, MimeTypes.AUDIO_E_AC3_JOC,
-            MimeTypes.AUDIO_DTS, MimeTypes.AUDIO_DTS_HD, MimeTypes.AUDIO_DTS_EXPRESS, MimeTypes.AUDIO_TRUEHD, MimeTypes.AUDIO_AC4)
-        if (s != 1f && bitstream && !pcmOnly) { rebuildForSpeed(); return }
-        exo.setPlaybackSpeed(s)
-        // If the sound output refused the new speed, decode the sound in the app and try again.
-        handler.postDelayed({
-            val p = player ?: return@postDelayed
-            if (s != 1f && !pcmOnly && kotlin.math.abs(p.playbackParameters.speed - s) > 0.01f) rebuildForSpeed()
-            else showGestureInfo("Speed ${s}x")
-        }, 800)
-    }
-
-    private fun rebuildForSpeed() {
-        pcmOnly = true
-        savePosition()
-        player?.removeListener(listener)
-        player?.release()
-        player = null
-        initializePlayer()
-        playCurrent(resume = true)
-        showGestureInfo("Speed ${speed}x")
-    }
-
     /** Android 12+: let the system slide into picture-in-picture smoothly when going home. */
     private fun updatePipParams() {
         if (Build.VERSION.SDK_INT < 31 || !pipSupported()) return
-        try {
-            setPictureInPictureParams(
-                PictureInPictureParams.Builder()
-                    .setAspectRatio(pipRatio())
-                    .setAutoEnterEnabled(store.pipEnabled && player?.isPlaying == true)
-                    .setSeamlessResizeEnabled(true)
-                    .apply { videoRect()?.let { setSourceRectHint(it) } }
-                    .build()
-            )
-        } catch (e: Exception) {
-            // ignore
+        for (withHint in listOf(true, false)) {
+            try {
+                setPictureInPictureParams(
+                    PictureInPictureParams.Builder()
+                        .setAspectRatio(pipRatio())
+                        .setAutoEnterEnabled(store.pipEnabled && player?.isPlaying == true)
+                        .setSeamlessResizeEnabled(true)
+                        .apply { if (withHint) videoRect()?.let { setSourceRectHint(it) } }
+                        .build()
+                )
+                return
+            } catch (e: Exception) {
+                // try again without the hint
+            }
         }
     }
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (Build.VERSION.SDK_INT >= 31) return // handled by auto-enter
-        if (store.pipEnabled && player?.isPlaying == true) enterPip()
+        if (Build.VERSION.SDK_INT >= 31 && !tvMode) return // phones: handled by auto-enter
+        if (store.pipEnabled && player?.isPlaying == true && !isInPipNow()) enterPip()
+    }
+
+    private fun isInPipNow() = Build.VERSION.SDK_INT >= 24 && isInPictureInPictureMode
+
+    // ---- Keep playing in picture-in-picture when another app (Netflix, YouTube…) plays sound ----
+    private val audioAttrs = AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build()
+    private var pipFocus: android.media.AudioFocusRequest? = null
+
+    /**
+     * Normally the player pauses when another app starts playing. In picture-in-picture it keeps playing
+     * and only goes quiet while the other app has the sound; full screen again = sound back.
+     */
+    private fun pipAudio(inPip: Boolean) {
+        val exo = player ?: return
+        if (Build.VERSION.SDK_INT < 26) return
+        val am = getSystemService(android.media.AudioManager::class.java) ?: return
+        if (inPip) {
+            exo.setAudioAttributes(audioAttrs, false)
+            val req = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MOVIE).build())
+                .setWillPauseWhenDucked(false)
+                .setOnAudioFocusChangeListener { change ->
+                    runOnUiThread {
+                        player?.volume = when (change) {
+                            android.media.AudioManager.AUDIOFOCUS_GAIN -> 1f
+                            android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> 0.3f
+                            else -> 0f // another app is playing: stay on screen, silently
+                        }
+                    }
+                }
+                .build()
+            am.requestAudioFocus(req)
+            pipFocus = req
+        } else {
+            pipFocus?.let { am.abandonAudioFocusRequest(it) }
+            pipFocus = null
+            exo.volume = 1f
+            exo.setAudioAttributes(audioAttrs, true)
+        }
     }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         pipActive = isInPictureInPictureMode
+        pipAudio(isInPictureInPictureMode)
         if (isInPictureInPictureMode) {
             hideInfo()
             hidePanel()
@@ -895,9 +903,12 @@ class PlayerActivity : BaseActivity() {
             }
         }
         if (zoom > 1.01f) opts += "Reset zoom (${(zoom * 100).roundToInt()}%)" to { zoom = 1f; applyZoom() }
-        if (!isLive && exo != null) opts += "Playback speed: ${exo.playbackParameters.speed}x" to {
+        // Not on TV for now (TV boxes that send surround sound straight to the TV can't change speed).
+        if (!isLive && !tvMode && exo != null) opts += "Playback speed: ${exo.playbackParameters.speed}x" to {
             val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
-            Dialogs.choose(this, "Playback speed", speeds.map { "${it}x" }, speeds, exo.playbackParameters.speed) { setSpeed(it) }
+            Dialogs.choose(this, "Playback speed", speeds.map { "${it}x" }, speeds, exo.playbackParameters.speed) {
+                player?.setPlaybackSpeed(it)
+            }
         }
         opts += "Audio track" to { trackDialog(C.TRACK_TYPE_AUDIO, "Audio") }
         opts += "Subtitles" to { if (isLive) trackDialog(C.TRACK_TYPE_TEXT, "Subtitles") else subtitleMenu() }
@@ -910,10 +921,8 @@ class PlayerActivity : BaseActivity() {
             store.playerGestures = !store.playerGestures
             toast(if (store.playerGestures) "Gestures on" else "Gestures off")
         }
-        if (store.pipEnabled) {
-            if (pipSupported()) opts += "Picture-in-picture" to { if (!enterPip()) goMini(); Unit }
-            else opts += "Mini player (keep watching while you browse)" to { goMini(); Unit }
-        }
+        if (pipSupported()) opts += "Picture-in-picture" to { if (!enterPip()) goMini(); Unit }
+        else opts += "Mini player (keep watching while you browse)" to { goMini(); Unit }
         AlertDialog.Builder(this)
             .setTitle("Settings")
             .setItems(opts.map { it.first }.toTypedArray()) { _, which -> opts[which].second() }
