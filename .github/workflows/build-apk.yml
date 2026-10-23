@@ -2,7 +2,9 @@ name: Build Farloh TV APK
 
 on:
   push:
-    branches: [main]
+    # main = published versions (creates a GitHub release).
+    # dev  = test builds only: compiled and checked, never released.
+    branches: [main, dev]
   workflow_dispatch:
 
 permissions:
