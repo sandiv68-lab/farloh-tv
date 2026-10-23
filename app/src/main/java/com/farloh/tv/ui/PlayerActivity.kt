@@ -181,7 +181,7 @@ class PlayerActivity : BaseActivity() {
                 when {
                     locked -> showUnlock()
                     channelPanel.visibility == View.VISIBLE -> hidePanel()
-                    store.pipOnBack && store.pipEnabled && player?.isPlaying == true && enterPip() -> Unit
+                    store.pipOnBack && store.pipEnabled && pipSupported() && player?.isPlaying == true && enterPip() -> Unit
                     else -> finish()
                 }
             }
@@ -337,8 +337,8 @@ class PlayerActivity : BaseActivity() {
 
     // ---------------- Picture-in-picture ----------------
 
-    /** Android 8+. Not only devices that report PiP: some TV boxes can do it without saying so, so we just try. */
-    private fun pipSupported(): Boolean = Build.VERSION.SDK_INT >= 26
+    /** Only devices whose Android has picture-in-picture (many TV boxes don't; Android refuses there). */
+    private fun pipSupported(): Boolean = Build.VERSION.SDK_INT >= 26 && pipReported()
 
     private fun pipReported(): Boolean = packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
 
@@ -433,7 +433,7 @@ class PlayerActivity : BaseActivity() {
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
         if (Build.VERSION.SDK_INT >= 31 && !tvMode) return // phones: handled by auto-enter
-        if (store.pipEnabled && player?.isPlaying == true && !isInPipNow()) enterPip()
+        if (store.pipEnabled && pipSupported() && player?.isPlaying == true && !isInPipNow()) enterPip()
     }
 
     private fun isInPipNow() = Build.VERSION.SDK_INT >= 24 && isInPictureInPictureMode
@@ -930,7 +930,7 @@ class PlayerActivity : BaseActivity() {
             store.playerGestures = !store.playerGestures
             toast(if (store.playerGestures) "Gestures on" else "Gestures off")
         }
-        if (Build.VERSION.SDK_INT >= 26) opts += "Picture-in-picture" to { enterPip(explain = true); Unit }
+        if (pipSupported()) opts += "Picture-in-picture" to { enterPip(explain = true); Unit }
         AlertDialog.Builder(this)
             .setTitle("Settings")
             .setItems(opts.map { it.first }.toTypedArray()) { _, which -> opts[which].second() }

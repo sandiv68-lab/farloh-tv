@@ -390,12 +390,10 @@ class BrowseActivity : BaseActivity() {
             .show()
     }
 
+    /** TV / wide layout: start on the first category ("All"). Phones: the first item. */
     private fun focusFirstItem() {
-        itemsRv.post {
-            val first = itemsRv.layoutManager?.findViewByPosition(0)
-            if (first != null) first.requestFocus()
-            else if (wide) categoriesRv.getChildAt(0)?.requestFocus()
-        }
+        if (wide) { focusWhenReady(categoriesRv, 0); return }
+        itemsRv.post { itemsRv.layoutManager?.findViewByPosition(0)?.requestFocus() }
     }
 
     // ---------------- Live TV ----------------

@@ -154,7 +154,7 @@ class SettingsActivity : BaseActivity() {
         list.adapter = tileAdapter
         tileAdapter.submit(groups.map { it.header })
         val focusIndex = groups.indexOfFirst { it.header.key == previous }.coerceAtLeast(0)
-        list.post { list.layoutManager?.findViewByPosition(focusIndex)?.requestFocus() }
+        focusWhenReady(list, focusIndex)
     }
 
     private fun openSection(key: String) {
@@ -194,9 +194,11 @@ class SettingsActivity : BaseActivity() {
         }
         r += Row.Item("Subtitle language", label(LANGUAGES, store.subtitleLanguage)
             .ifEmpty { store.subtitleLanguage.uppercase() }, "Used when Subtitles is On") { chooseLanguage() }
-        r += Row.Item("Picture-in-picture", onOff(store.pipEnabled),
-            if (Build.VERSION.SDK_INT >= 26) "Keep watching in a small window when you press Home or Back in the player"
-            else "Needs Android 8 or newer") {
+        val pipHere = Build.VERSION.SDK_INT >= 26 &&
+            packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)
+        r += Row.Item("Picture-in-picture", if (pipHere) onOff(store.pipEnabled) else "Not available",
+            if (pipHere) "Keep watching in a small window when you press Home or Back in the player"
+            else "This device's Android doesn't include picture-in-picture") {
             store.pipEnabled = !store.pipEnabled; refresh()
         }
         r += Row.Item("Recently added limit", limitLabel(store.recentLimit), "Size of the \"Recently added\" group in Movies and TV Shows") {

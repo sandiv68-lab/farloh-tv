@@ -347,8 +347,12 @@ class Store private constructor(context: Context) {
 
     /** Player: Back button shrinks the video into picture-in-picture instead of closing it. */
     var pipOnBack: Boolean by BoolPref("pip_on_back", true)
-    /** Player screen size: "fit", "stretch", "crop" or "original". */
-    var videoResize: String by StringPref("video_resize", "fit")
+    /** Player screen size: "fit", "stretch", "crop", "16:9" or "4:3". Until chosen: 16:9 on TV, Fit on phones. */
+    var videoResize: String
+        get() = prefs.getString("video_resize", null) ?: if (tvDefaults) "16:9" else "fit"
+        set(value) = prefs.edit().putString("video_resize", value).apply()
+    /** Set by the screens: the app is in TV mode (for TV-only defaults). Not saved. */
+    @Volatile var tvDefaults = false
     /** Player: swipe for brightness / volume / seek, pinch to zoom, double-tap to skip. */
     var playerGestures: Boolean by BoolPref("player_gestures", true)
 

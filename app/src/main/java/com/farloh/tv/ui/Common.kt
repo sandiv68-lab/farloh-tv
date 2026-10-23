@@ -89,6 +89,7 @@ open class BaseActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        store.tvDefaults = tvMode
         WindowCompat.setDecorFitsSystemWindows(window, false)
         // Landscape by default (also set in the manifest so it doesn't flash portrait first).
         if (store.orientation == "auto") requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
@@ -125,6 +126,17 @@ open class BaseActivity : AppCompatActivity() {
             finish()
         }
         return account
+    }
+}
+
+/** Puts the focus on row [position] once the list has drawn it (retries briefly while the list is still loading). */
+fun focusWhenReady(rv: RecyclerView, position: Int, tries: Int = 20) {
+    rv.post {
+        val v = rv.layoutManager?.findViewByPosition(position)
+        when {
+            v != null -> v.requestFocus()
+            tries > 0 -> { if (position == 0) rv.scrollToPosition(0); rv.postDelayed({ focusWhenReady(rv, position, tries - 1) }, 50) }
+        }
     }
 }
 
