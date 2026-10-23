@@ -56,6 +56,8 @@ interface CatalogItem {
     val name: String
     val image: String?
     val categoryId: String
+    /** Which playlist this came from (matters in the combined view). */
+    val playlistId: String
 }
 
 data class LiveChannel(
@@ -65,6 +67,7 @@ data class LiveChannel(
     override val image: String?,
     val epgId: String?,
     override val categoryId: String,
+    override val playlistId: String = "",
 ) : CatalogItem
 
 data class Movie(
@@ -75,6 +78,7 @@ data class Movie(
     val rating: String?,
     val ext: String,
     val added: Long = 0L,
+    override val playlistId: String = "",
 ) : CatalogItem
 
 data class Show(
@@ -85,6 +89,7 @@ data class Show(
     val rating: String?,
     val year: String?,
     val added: Long = 0L,
+    override val playlistId: String = "",
 ) : CatalogItem
 
 data class Programme(val title: String, val description: String, val start: Long, val end: Long) {

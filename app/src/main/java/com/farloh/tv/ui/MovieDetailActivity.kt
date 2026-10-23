@@ -24,7 +24,11 @@ class MovieDetailActivity : BaseActivity() {
         const val EXTRA_NAME = "name"
         const val EXTRA_IMAGE = "image"
         const val EXTRA_EXT = "ext"
+        const val EXTRA_PLAYLIST = "playlist"
     }
+
+    /** Which playlist this movie belongs to (matters in the combined view). */
+    private var pid: String? = null
 
     private lateinit var account: Account
     private lateinit var id: String
@@ -39,7 +43,9 @@ class MovieDetailActivity : BaseActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        account = requireAccount() ?: return
+        requireAccount() ?: return
+        pid = intent.getStringExtra(EXTRA_PLAYLIST)?.ifEmpty { null }
+        account = store.accountFor(pid) ?: return
         id = intent.getStringExtra(EXTRA_ID) ?: run { finish(); return }
         name = intent.getStringExtra(EXTRA_NAME).orEmpty()
         image = intent.getStringExtra(EXTRA_IMAGE)
@@ -64,7 +70,7 @@ class MovieDetailActivity : BaseActivity() {
         restart.setOnClickListener { Launcher.play(this, listOf(bestPlayable()), 0, external = false, resume = false) }
         findViewById<View>(R.id.external).setOnClickListener { Launcher.play(this, listOf(bestPlayable()), 0, external = true) }
         findViewById<ImageView>(R.id.fav).setOnClickListener {
-            val added = store.toggleFavorite(id, com.farloh.tv.data.Section.MOVIES)
+            val added = store.toggleFavorite(id, com.farloh.tv.data.Section.MOVIES, pid)
             toast(if (added) "Added to Favourites" else "Removed from Favourites")
             updateFav()
         }
@@ -85,7 +91,7 @@ class MovieDetailActivity : BaseActivity() {
     override fun onResume() {
         super.onResume()
         if (!::play.isInitialized) return
-        val pos = store.resumePosition("${Kind.MOVIE.name}_$id")
+        val pos = store.resumePosition("${Kind.MOVIE.name}_$id", pid)
         updateDownloadButton()
         if (pos > 0) {
             play.text = "▶  Resume from ${Fmt.duration(pos)}"
@@ -98,7 +104,7 @@ class MovieDetailActivity : BaseActivity() {
 
     private fun playable() = Playable(
         Kind.MOVIE, id, name, account.movieUrl(id, ext), image,
-        searchTitle = name, tmdbId = info?.tmdbId, year = info?.year, ext = ext,
+        searchTitle = name, tmdbId = info?.tmdbId, year = info?.year, ext = ext, playlistId = pid,
     )
 
     /** The downloaded copy if there is one, otherwise the stream. */
@@ -120,7 +126,7 @@ class MovieDetailActivity : BaseActivity() {
     }
 
     private fun updateFav() {
-        val fav = store.isFavorite(com.farloh.tv.data.Section.MOVIES, id)
+        val fav = store.isFavorite(com.farloh.tv.data.Section.MOVIES, id, pid)
         findViewById<ImageView>(R.id.fav).apply {
             setImageResource(if (fav) R.drawable.ic_star else R.drawable.ic_star_border)
             setColorFilter(androidx.core.content.ContextCompat.getColor(this@MovieDetailActivity, if (fav) R.color.accent else R.color.text))

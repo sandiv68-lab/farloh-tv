@@ -46,56 +46,65 @@ object Catalog {
     private val memory = ConcurrentHashMap<String, SectionData>()
     private val locks = Section.values().associateWith { Mutex() }
 
-    private fun pid(ctx: Context) = Store.get(ctx).activePlaylist?.id ?: "none"
-    private fun memKey(ctx: Context, s: Section) = "${pid(ctx)}/${s.key}"
-    private fun dir(ctx: Context) = File(ctx.filesDir, "catalog/${pid(ctx)}").apply { mkdirs() }
-    private fun categoryFile(ctx: Context, s: Section) = File(dir(ctx), "${s.key}_categories.json")
-    private fun itemFile(ctx: Context, s: Section) = File(dir(ctx), "${s.key}_items.json")
+    /** [pid] = a specific playlist; null = the one in use. */
+    private fun pid(ctx: Context, pid: String? = null) = pid ?: Store.get(ctx).activePlaylist?.id ?: "none"
+    private fun memKey(ctx: Context, s: Section, pid: String?) = "${pid(ctx, pid)}/${s.key}"
+    private fun dir(ctx: Context, pid: String? = null) = File(ctx.filesDir, "catalog/${pid(ctx, pid)}").apply { mkdirs() }
+    private fun categoryFile(ctx: Context, s: Section, pid: String?) = File(dir(ctx, pid), "${s.key}_categories.json")
+    private fun itemFile(ctx: Context, s: Section, pid: String?) = File(dir(ctx, pid), "${s.key}_items.json")
 
-    fun lastUpdated(ctx: Context, s: Section): Long =
-        itemFile(ctx, s).let { if (it.exists()) it.lastModified() else 0L }
+    fun lastUpdated(ctx: Context, s: Section, pid: String? = null): Long =
+        itemFile(ctx, s, pid).let { if (it.exists()) it.lastModified() else 0L }
 
     /** Cached data if available, otherwise downloads it once. */
-    suspend fun load(ctx: Context, s: Section): SectionData = locks.getValue(s).withLock {
-        val key = memKey(ctx, s)
+    suspend fun load(ctx: Context, s: Section, pid: String? = null): SectionData = locks.getValue(s).withLock {
+        val key = memKey(ctx, s, pid)
         memory[key] ?: withContext(Dispatchers.IO) {
-            if (!itemFile(ctx, s).exists() || !categoryFile(ctx, s).exists()) download(ctx, s)
-            parse(ctx, s)
-        }.also { memory[key] = it }
+            if (!itemFile(ctx, s, pid).exists() || !categoryFile(ctx, s, pid).exists()) download(ctx, s, pid)
+            parse(ctx, s, pid)
+        }.also { remember(key, it) }
     }
 
     /** Manual refresh of one section. On failure the previous cache is kept. */
-    suspend fun refresh(ctx: Context, s: Section): SectionData = locks.getValue(s).withLock {
-        val key = memKey(ctx, s)
+    suspend fun refresh(ctx: Context, s: Section, pid: String? = null): SectionData = locks.getValue(s).withLock {
+        val key = memKey(ctx, s, pid)
         withContext(Dispatchers.IO) {
-            download(ctx, s)
-            parse(ctx, s)
-        }.also { memory[key] = it }
+            download(ctx, s, pid)
+            parse(ctx, s, pid)
+        }.also { remember(key, it) }
     }
 
+    /** Keep at most 6 lists in memory (big combined playlists on small devices). */
+    private fun remember(key: String, data: SectionData) {
+        memory[key] = data
+        order.remove(key); order.add(key)
+        while (order.size > 6) memory.remove(order.removeAt(0))
+    }
+    private val order = java.util.Collections.synchronizedList(ArrayList<String>())
+
     /** Forget in-memory lists (after switching playlist). Disk caches stay. */
-    fun clearMemory() = memory.clear()
+    fun clearMemory() { memory.clear(); order.clear() }
 
     /** Deletes the cached lists of the active playlist. */
     fun clear(ctx: Context) {
-        memory.clear()
+        clearMemory()
         dir(ctx).deleteRecursively()
     }
 
     /** Deletes the cached lists of any playlist (used when a playlist is removed). */
     fun deleteFor(ctx: Context, playlistId: String) {
-        memory.clear()
+        clearMemory()
         File(ctx.filesDir, "catalog/$playlistId").deleteRecursively()
     }
 
-    private fun download(ctx: Context, s: Section) {
-        val account = Store.get(ctx).account ?: throw IOException("Not signed in")
-        val catNew = File(categoryFile(ctx, s).path + ".new")
-        val itemNew = File(itemFile(ctx, s).path + ".new")
+    private fun download(ctx: Context, s: Section, pid: String?) {
+        val account = Store.get(ctx).accountFor(pid) ?: throw IOException("Not signed in")
+        val catNew = File(categoryFile(ctx, s, pid).path + ".new")
+        val itemNew = File(itemFile(ctx, s, pid).path + ".new")
         Net.download(account.api(s.catAction), catNew)
         Net.download(account.api(s.listAction), itemNew)
-        replace(catNew, categoryFile(ctx, s))
-        replace(itemNew, itemFile(ctx, s))
+        replace(catNew, categoryFile(ctx, s, pid))
+        replace(itemNew, itemFile(ctx, s, pid))
     }
 
     private fun replace(from: File, to: File) {
@@ -103,15 +112,16 @@ object Catalog {
         if (!from.renameTo(to)) throw IOException("Could not save playlist")
     }
 
-    private fun parse(ctx: Context, s: Section): SectionData {
+    private fun parse(ctx: Context, s: Section, pidArg: String?): SectionData {
+        val playlistId = pid(ctx, pidArg)
         val categories = ArrayList<Category>()
-        readObjects(categoryFile(ctx, s), setOf("category_id", "category_name")) { m ->
+        readObjects(categoryFile(ctx, s, pidArg), setOf("category_id", "category_name")) { m ->
             val id = m["category_id"] ?: return@readObjects
             categories.add(Category(id, m["category_name"]?.trim().orEmpty().ifEmpty { "Other" }))
         }
         val items = ArrayList<CatalogItem>()
         when (s) {
-            Section.LIVE -> readObjects(itemFile(ctx, s), LIVE_KEYS) { m ->
+            Section.LIVE -> readObjects(itemFile(ctx, s, pidArg), LIVE_KEYS) { m ->
                 val id = m["stream_id"] ?: return@readObjects
                 items.add(
                     LiveChannel(
@@ -121,10 +131,11 @@ object Catalog {
                         image = m["stream_icon"]?.takeIf { it.isNotBlank() },
                         epgId = m["epg_channel_id"],
                         categoryId = m["category_id"].orEmpty(),
+                        playlistId = playlistId,
                     )
                 )
             }
-            Section.MOVIES -> readObjects(itemFile(ctx, s), MOVIE_KEYS) { m ->
+            Section.MOVIES -> readObjects(itemFile(ctx, s, pidArg), MOVIE_KEYS) { m ->
                 val id = m["stream_id"] ?: return@readObjects
                 items.add(
                     Movie(
@@ -135,10 +146,11 @@ object Catalog {
                         rating = m["rating"]?.takeIf { it.isNotBlank() && it != "0" },
                         ext = m["container_extension"].orEmpty(),
                         added = m["added"]?.toLongOrNull() ?: 0L,
+                        playlistId = playlistId,
                     )
                 )
             }
-            Section.SERIES -> readObjects(itemFile(ctx, s), SERIES_KEYS) { m ->
+            Section.SERIES -> readObjects(itemFile(ctx, s, pidArg), SERIES_KEYS) { m ->
                 val id = m["series_id"] ?: return@readObjects
                 items.add(
                     Show(
@@ -149,12 +161,13 @@ object Catalog {
                         rating = m["rating"]?.takeIf { it.isNotBlank() && it != "0" },
                         year = (m["releaseDate"] ?: m["release_date"])?.take(4),
                         added = m["last_modified"]?.toLongOrNull() ?: 0L,
+                        playlistId = playlistId,
                     )
                 )
             }
         }
-        Store.get(ctx).setItemCount(s, items.size)
-        return SectionData(categories, items, lastUpdated(ctx, s))
+        Store.get(ctx).setItemCount(s, items.size, playlistId)
+        return SectionData(categories, items, lastUpdated(ctx, s, pidArg))
     }
 
     private val LIVE_KEYS = setOf("num", "name", "stream_id", "stream_icon", "epg_channel_id", "category_id")

@@ -31,25 +31,26 @@ object GuideIndex {
         fun isNow(now: Long = System.currentTimeMillis()) = now in start until end
     }
 
-    private fun file(ctx: Context): File {
-        val pid = Store.get(ctx).activePlaylist?.id ?: "none"
-        return File(ctx.filesDir, "catalog/$pid/guide_index.tsv")
+    /** [pid] null = the playlist in use. */
+    private fun file(ctx: Context, pid: String? = null): File {
+        val id = Store.get(ctx).playlist(pid)?.id ?: "none"
+        return File(ctx.filesDir, "catalog/$id/guide_index.tsv")
     }
 
-    fun lastUpdated(ctx: Context): Long = file(ctx).let { if (it.exists()) it.lastModified() else 0L }
+    fun lastUpdated(ctx: Context, pid: String? = null): Long = file(ctx, pid).let { if (it.exists()) it.lastModified() else 0L }
 
-    fun exists(ctx: Context) = file(ctx).let { it.exists() && it.length() > 0 }
+    fun exists(ctx: Context, pid: String? = null) = file(ctx, pid).let { it.exists() && it.length() > 0 }
 
     /** Downloads and indexes the TV guide. [progress] gets megabytes read so far. */
-    suspend fun download(ctx: Context, progress: (Int) -> Unit): Int = withContext(Dispatchers.IO) {
-        val account = Store.get(ctx).account ?: throw IOException("Not signed in")
+    suspend fun download(ctx: Context, pid: String? = null, progress: (Int) -> Unit): Int = withContext(Dispatchers.IO) {
+        val account = Store.get(ctx).accountFor(pid) ?: throw IOException("Not signed in")
         // Only keep channels that are in this playlist (keeps the index small).
         val wanted = runCatching {
-            Catalog.load(ctx, Section.LIVE).items.mapNotNull { (it as? LiveChannel)?.epgId?.lowercase()?.takeIf { id -> id.isNotBlank() } }.toHashSet()
+            Catalog.load(ctx, Section.LIVE, pid).items.mapNotNull { (it as? LiveChannel)?.epgId?.lowercase()?.takeIf { id -> id.isNotBlank() } }.toHashSet()
         }.getOrDefault(HashSet())
 
         val client = Net.client.newBuilder().readTimeout(120, java.util.concurrent.TimeUnit.SECONDS).build()
-        val out = File(file(ctx).path + ".part").apply { parentFile?.mkdirs() }
+        val out = File(file(ctx, pid).path + ".part").apply { parentFile?.mkdirs() }
         var count = 0
         client.newCall(Request.Builder().url(account.xmltvUrl()).build()).execute().use { res ->
             if (!res.isSuccessful) throw HttpError(res.code)
@@ -98,15 +99,15 @@ object GuideIndex {
                 }
             }
         }
-        val dest = file(ctx)
+        val dest = file(ctx, pid)
         if (dest.exists()) dest.delete()
         if (!out.renameTo(dest)) throw IOException("Couldn't save the TV guide")
         count
     }
 
     /** Programmes whose title contains every word of [query]; on now first, then by start time. Ended ones are left out. */
-    suspend fun search(ctx: Context, query: String, limit: Int): List<Programme> = withContext(Dispatchers.IO) {
-        val f = file(ctx)
+    suspend fun search(ctx: Context, query: String, limit: Int, pid: String? = null): List<Programme> = withContext(Dispatchers.IO) {
+        val f = file(ctx, pid)
         if (!f.exists()) return@withContext emptyList()
         val words = query.lowercase().split(' ').filter { it.isNotBlank() }
         if (words.isEmpty()) return@withContext emptyList()
@@ -128,7 +129,7 @@ object GuideIndex {
         out.sortedWith(compareBy<Programme>({ !it.isNow(now) }, { it.start })).take(limit)
     }
 
-    fun delete(ctx: Context) = file(ctx).delete()
+    fun delete(ctx: Context, pid: String? = null) = file(ctx, pid).delete()
 
     /** XMLTV times look like "20261023180000 +0800" (offset sometimes missing → UTC). */
     private fun parseTime(s: String?): Long {

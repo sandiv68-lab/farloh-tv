@@ -28,9 +28,12 @@ class SeriesDetailActivity : BaseActivity() {
         const val EXTRA_ID = "id"
         const val EXTRA_NAME = "name"
         const val EXTRA_IMAGE = "image"
+        const val EXTRA_PLAYLIST = "playlist"
     }
 
     private lateinit var account: Account
+    /** Which playlist this show belongs to (matters in the combined view). */
+    private var pid: String? = null
     private lateinit var seriesId: String
     private var showName = ""
     private var cover: String? = null
@@ -48,7 +51,9 @@ class SeriesDetailActivity : BaseActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        account = requireAccount() ?: return
+        requireAccount() ?: return
+        pid = intent.getStringExtra(EXTRA_PLAYLIST)?.ifEmpty { null }
+        account = store.accountFor(pid) ?: return
         seriesId = intent.getStringExtra(EXTRA_ID) ?: run { finish(); return }
         showName = intent.getStringExtra(EXTRA_NAME).orEmpty()
         cover = intent.getStringExtra(EXTRA_IMAGE)
@@ -56,7 +61,7 @@ class SeriesDetailActivity : BaseActivity() {
 
         findViewById<View>(R.id.back).setOnClickListener { finish() }
         findViewById<ImageView>(R.id.fav).setOnClickListener {
-            val added = store.toggleFavorite(seriesId, com.farloh.tv.data.Section.SERIES)
+            val added = store.toggleFavorite(seriesId, com.farloh.tv.data.Section.SERIES, pid)
             toast(if (added) "Added to Favourites" else "Removed from Favourites")
             updateFav()
         }
@@ -164,7 +169,7 @@ class SeriesDetailActivity : BaseActivity() {
     }
 
     private fun updateFav() {
-        val fav = store.isFavorite(com.farloh.tv.data.Section.SERIES, seriesId)
+        val fav = store.isFavorite(com.farloh.tv.data.Section.SERIES, seriesId, pid)
         findViewById<ImageView>(R.id.fav).apply {
             setImageResource(if (fav) R.drawable.ic_star else R.drawable.ic_star_border)
             setColorFilter(androidx.core.content.ContextCompat.getColor(this@SeriesDetailActivity, if (fav) R.color.accent else R.color.text))
@@ -176,7 +181,7 @@ class SeriesDetailActivity : BaseActivity() {
     private fun remotePlayable(ep: Episode) = Playable(
         Kind.EPISODE, ep.id, episodeTitle(ep), account.episodeUrl(ep.id, ep.ext), ep.image ?: cover,
         subtitle = showName, searchTitle = showName, tmdbId = info?.tmdbId, year = info?.year?.ifBlank { null },
-        season = ep.season, episode = ep.num, ext = ep.ext,
+        season = ep.season, episode = ep.num, ext = ep.ext, playlistId = pid,
     )
 
     private fun downloadEpisodes(eps: List<Episode>) {
@@ -199,7 +204,7 @@ class SeriesDetailActivity : BaseActivity() {
         ).joinToString("  •  ")
         v.findViewById<TextView>(R.id.plot).text = ep.plot
         val bar = v.findViewById<ProgressBar>(R.id.watched)
-        val progress = store.progress("${Kind.EPISODE.name}_${ep.id}")
+        val progress = store.progress("${Kind.EPISODE.name}_${ep.id}", pid)
         if (progress > 0) {
             bar.progress = progress
             bar.visibility = View.VISIBLE

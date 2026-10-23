@@ -25,12 +25,14 @@ fun openItemDetails(activity: Activity, item: CatalogItem) {
                 .putExtra(MovieDetailActivity.EXTRA_NAME, item.name)
                 .putExtra(MovieDetailActivity.EXTRA_IMAGE, item.image)
                 .putExtra(MovieDetailActivity.EXTRA_EXT, item.ext)
+                .putExtra(MovieDetailActivity.EXTRA_PLAYLIST, item.playlistId)
         )
         is Show -> activity.startActivity(
             Intent(activity, SeriesDetailActivity::class.java)
                 .putExtra(SeriesDetailActivity.EXTRA_ID, item.id)
                 .putExtra(SeriesDetailActivity.EXTRA_NAME, item.name)
                 .putExtra(SeriesDetailActivity.EXTRA_IMAGE, item.image)
+                .putExtra(SeriesDetailActivity.EXTRA_PLAYLIST, item.playlistId)
         )
     }
 }
@@ -51,7 +53,7 @@ object ItemOptions {
         onChanged: () -> Unit = {},
     ) {
         val store = Store.get(activity)
-        val isFav = store.isFavorite(section, item.id)
+        val isFav = store.isFavorite(section, item.id, item.playlistId)
         val opts = ArrayList<Pair<String, () -> Unit>>()
         when (item) {
             is LiveChannel -> {
@@ -60,7 +62,7 @@ object ItemOptions {
             }
             is Movie -> {
                 val p = Playable(Kind.MOVIE, item.id, item.name, account.movieUrl(item.id, item.ext), item.image,
-                    searchTitle = item.name, ext = item.ext)
+                    searchTitle = item.name, ext = item.ext, playlistId = item.playlistId)
                 opts += "Play" to { Launcher.play(activity, listOf(p), 0, external = false) }
                 opts += "Open in external player (MX / VLC)" to { Launcher.play(activity, listOf(p), 0, external = true) }
                 opts += "Details" to { openItemDetails(activity, item) }
@@ -71,7 +73,7 @@ object ItemOptions {
             is Show -> opts += "Open" to { openItemDetails(activity, item) }
         }
         opts += (if (isFav) "★  Remove from Favourites" else "☆  Add to Favourites") to {
-            val added = store.toggleFavorite(item.id, section)
+            val added = store.toggleFavorite(item.id, section, item.playlistId)
             Toast.makeText(activity, if (added) "Added to Favourites" else "Removed from Favourites", Toast.LENGTH_SHORT).show()
             onChanged()
         }

@@ -97,6 +97,7 @@ class Store private constructor(context: Context) {
         prefs.all.keys.filter { it.startsWith("$id:") }.forEach { e.remove(it) }
         e.apply()
         if (prefs.getString(KEY_ACTIVE, null) == id) rest.firstOrNull()?.let { setActive(it.id) }
+        combinedIds = combinedIds - id
         return activePlaylist
     }
 
@@ -108,7 +109,40 @@ class Store private constructor(context: Context) {
     }
 
     private fun scopeId(): String = activePlaylist?.id ?: "none"
-    private fun k(name: String) = "${scopeId()}:$name"
+    /** Per-playlist key; [pid] = that playlist, or the one in use when null. */
+    private fun k(name: String, pid: String? = null) = "${pid?.takeIf { it.isNotEmpty() } ?: scopeId()}:$name"
+
+    fun playlist(pid: String?): Playlist? = if (pid.isNullOrEmpty()) activePlaylist else playlists().firstOrNull { it.id == pid }
+
+    /** Login for a playlist (the one in use when [pid] is null/unknown). */
+    fun accountFor(pid: String?): Account? = playlist(pid)?.account ?: account
+
+    // ---- Combined view: several playlists shown together ----
+    var combinedIds: Set<String>
+        get() = HashSet(prefs.getStringSet("combined_ids", emptySet()) ?: emptySet())
+        set(value) = prefs.edit().putStringSet("combined_ids", HashSet(value)).apply()
+    var combinedOn: Boolean
+        get() = prefs.getBoolean("combined_on", false)
+        set(value) = prefs.edit().putBoolean("combined_on", value).apply()
+
+    /** Playlists shown together, in saved order (empty when the combined view is off or has fewer than 2). */
+    fun combinedPlaylists(): List<Playlist> {
+        if (!combinedOn) return emptyList()
+        val ids = combinedIds
+        val list = playlists().filter { it.id in ids }
+        return if (list.size >= 2) list else emptyList()
+    }
+
+    val isCombined: Boolean get() = combinedPlaylists().isNotEmpty()
+
+    /** Playlist headers left open in the combined view, per section. */
+    fun expandedPlaylists(section: Section): Set<String> =
+        HashSet(prefs.getStringSet("combined_open_${section.name}", emptySet()) ?: emptySet())
+    fun setExpandedPlaylists(section: Section, ids: Set<String>) =
+        prefs.edit().putStringSet("combined_open_${section.name}", HashSet(ids)).apply()
+
+    /** The playlists the screens should show: the combined set, or just the one in use. */
+    fun viewPlaylists(): List<Playlist> = combinedPlaylists().ifEmpty { listOfNotNull(activePlaylist) }
 
     /** Version 1.0 stored a single login; turn it into the first playlist. */
     private fun migrateSingleAccount() {
@@ -144,67 +178,82 @@ class Store private constructor(context: Context) {
         get() = prefs.getBoolean(k("initial_load_done"), false)
         set(value) = prefs.edit().putBoolean(k("initial_load_done"), value).apply()
 
-    fun itemCount(section: Section): Int = prefs.getInt(k("count_${section.key}"), -1)
-    fun setItemCount(section: Section, count: Int) = prefs.edit().putInt(k("count_${section.key}"), count).apply()
+    fun isLoaded(pid: String?) = prefs.getBoolean(k("initial_load_done", pid), false)
+    fun setLoaded(pid: String?) = prefs.edit().putBoolean(k("initial_load_done", pid), true).apply()
+
+    fun itemCount(section: Section, pid: String? = null): Int = prefs.getInt(k("count_${section.key}", pid), -1)
+    fun setItemCount(section: Section, count: Int, pid: String? = null) =
+        prefs.edit().putInt(k("count_${section.key}", pid), count).apply()
 
     /** Favourites are kept separately for Live TV, Movies and TV Shows (their ids can overlap). */
-    private fun favKey(section: Section) = when (section) {
-        Section.LIVE -> k("favorites")
-        Section.MOVIES -> k("favorites_vod")
-        Section.SERIES -> k("favorites_series")
+    private fun favKey(section: Section, pid: String?) = when (section) {
+        Section.LIVE -> k("favorites", pid)
+        Section.MOVIES -> k("favorites_vod", pid)
+        Section.SERIES -> k("favorites_series", pid)
     }
 
-    fun favorites(section: Section = Section.LIVE): MutableSet<String> =
-        HashSet(prefs.getStringSet(favKey(section), emptySet()) ?: emptySet())
+    fun favorites(section: Section = Section.LIVE, pid: String? = null): MutableSet<String> =
+        HashSet(prefs.getStringSet(favKey(section, pid), emptySet()) ?: emptySet())
 
-    fun isFavorite(section: Section, id: String) = favorites(section).contains(id)
+    fun isFavorite(section: Section, id: String, pid: String? = null) = favorites(section, pid).contains(id)
 
     /** Returns true if the item is now a favourite. */
-    fun toggleFavorite(id: String, section: Section = Section.LIVE): Boolean {
-        val set = favorites(section)
+    fun toggleFavorite(id: String, section: Section = Section.LIVE, pid: String? = null): Boolean {
+        val set = favorites(section, pid)
         val added = if (set.contains(id)) { set.remove(id); false } else { set.add(id); true }
-        prefs.edit().putStringSet(favKey(section), set).apply()
+        prefs.edit().putStringSet(favKey(section, pid), set).apply()
         return added
     }
 
     /** Live TV channels watched, most recent first. */
-    fun history(): List<String> {
-        val raw = prefs.getString(k("history"), null) ?: return emptyList()
+    fun history(pid: String? = null): List<String> {
+        val raw = prefs.getString(k("history", pid), null) ?: return emptyList()
         return runCatching { JSONArray(raw).let { a -> (0 until a.length()).map { a.getString(it) } } }.getOrDefault(emptyList())
     }
 
-    fun addToHistory(id: String) {
+    fun addToHistory(id: String, pid: String? = null) {
         if (historyLimit <= 0) return
-        val list = (listOf(id) + history().filter { it != id }).take(100)
-        prefs.edit().putString(k("history"), JSONArray(list).toString()).apply()
+        val list = (listOf(id) + history(pid).filter { it != id }).take(100)
+        prefs.edit().putString(k("history", pid), JSONArray(list).toString()).apply()
+        prefs.edit().putLong(k("history_time_$id", pid), System.currentTimeMillis()).apply()
     }
 
-    fun clearHistory() = prefs.edit().remove(k("history")).apply()
+    /** When a channel was last watched (for ordering combined history). */
+    fun historyTime(id: String, pid: String? = null): Long = prefs.getLong(k("history_time_$id", pid), 0L)
+
+    fun clearHistory() {
+        val e = prefs.edit()
+        for (p in viewPlaylists()) {
+            e.remove(k("history", p.id))
+            prefs.all.keys.filter { it.startsWith("${p.id}:history_time_") }.forEach { e.remove(it) }
+        }
+        e.apply()
+    }
 
     /** Category ids hidden by parental control for a section. */
-    fun hiddenCategories(section: Section): Set<String> =
-        HashSet(prefs.getStringSet(k("hidden_${section.key}"), emptySet()) ?: emptySet())
+    fun hiddenCategories(section: Section, pid: String? = null): Set<String> =
+        HashSet(prefs.getStringSet(k("hidden_${section.key}", pid), emptySet()) ?: emptySet())
 
     fun setHiddenCategories(section: Section, ids: Set<String>) =
         prefs.edit().putStringSet(k("hidden_${section.key}"), HashSet(ids)).apply()
 
-    fun savePosition(key: String, positionMs: Long, durationMs: Long) {
-        prefs.edit().putLong(k("pos_$key"), positionMs).putLong(k("dur_$key"), durationMs).apply()
+    fun savePosition(key: String, positionMs: Long, durationMs: Long, pid: String? = null) {
+        prefs.edit().putLong(k("pos_$key", pid), positionMs).putLong(k("dur_$key", pid), durationMs).apply()
     }
 
     /** Saved position, or 0 if never started / basically finished. */
-    fun resumePosition(key: String): Long {
-        val pos = prefs.getLong(k("pos_$key"), 0)
-        val dur = prefs.getLong(k("dur_$key"), 0)
+    fun resumePosition(key: String, pid: String? = null): Long {
+        val pos = prefs.getLong(k("pos_$key", pid), 0)
+        val dur = prefs.getLong(k("dur_$key", pid), 0)
         if (pos < 30_000 || (dur > 0 && pos > dur * 0.95)) return 0
         return pos
     }
 
     /** 0..1000 watched progress, -1 if never played. */
-    fun progress(key: String): Int {
-        val dur = prefs.getLong(k("dur_$key"), 0)
+    fun progress(key: String, pid: String? = null): Int {
+        val dur = prefs.getLong(k("dur_$key", pid), 0)
         if (dur <= 0) return -1
-        return ((prefs.getLong(k("pos_$key"), 0) * 1000) / dur).toInt().coerceIn(0, 1000)
+        return ((prefs.getLong(k("pos_$key", pid), 0) * 1000) / dur).toInt().coerceIn(0, 1000)
     }
 
     // =================== App-wide settings ===================

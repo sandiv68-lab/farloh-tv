@@ -20,6 +20,7 @@ import com.farloh.tv.data.Catalog
 import com.farloh.tv.data.CatalogItem
 import com.farloh.tv.data.LiveChannel
 import com.farloh.tv.data.Movie
+import com.farloh.tv.data.Playlist
 import com.farloh.tv.data.Programme
 import com.farloh.tv.data.Section
 import com.farloh.tv.data.SectionData
@@ -43,10 +44,19 @@ class BrowseActivity : BaseActivity() {
         private const val RECENT = "__recent"
     }
 
-    private data class CatRow(val id: String, val name: String, val count: Int)
+    /** A row in the category column. [header] rows are playlist names that open/close (combined view). */
+    private data class CatRow(val id: String, val name: String, val count: Int, val header: Boolean = false, val playlistId: String = "")
+
+    /** One playlist's list for this section (several in the combined view). */
+    private class Part(val playlist: Playlist, val data: SectionData?, val error: String?)
 
     private lateinit var section: Section
     private lateinit var account: Account
+    private var parts: List<Part> = emptyList()
+    private val combined: Boolean get() = parts.size > 1
+    private var byCategory: Map<String, List<CatalogItem>> = emptyMap()
+    /** Playlists whose categories are open in the combined view. */
+    private val expanded = HashSet<String>()
 
     private lateinit var updated: TextView
     private lateinit var refreshButton: Button
@@ -62,7 +72,7 @@ class BrowseActivity : BaseActivity() {
     private lateinit var epgEmpty: TextView
     private lateinit var epgRv: RecyclerView
 
-    private var data: SectionData? = null
+    private val data: Any? get() = parts.firstOrNull { it.data != null }?.data
     private var catRows: List<CatRow> = emptyList()
     private var currentCat = ALL
     private var wide = false
@@ -76,10 +86,25 @@ class BrowseActivity : BaseActivity() {
     private var catJob: Job? = null
 
     private val catAdapter = SimpleAdapter<CatRow>(R.layout.row_category, 1.02f) { v, row, _ ->
-        v.findViewById<TextView>(R.id.name).text = row.name
+        val name = v.findViewById<TextView>(R.id.name)
+        if (row.header) {
+            name.text = (if (row.playlistId in expanded) "▼  " else "▶  ") + row.name
+            name.setTextColor(ContextCompat.getColor(this, R.color.accent2))
+            name.setTypeface(null, android.graphics.Typeface.BOLD)
+        } else {
+            name.text = if (combined && row.playlistId.isNotEmpty()) "    " + row.name else row.name
+            name.setTextColor(ContextCompat.getColor(this, R.color.text))
+            name.setTypeface(null, android.graphics.Typeface.NORMAL)
+        }
         v.findViewById<TextView>(R.id.count).text = row.count.toString()
-        v.isSelected = row.id == currentCat
+        v.isSelected = !row.header && row.id == currentCat
     }
+
+    /** Favourite keys are "playlistId|itemId" so the same id in two playlists doesn't clash. */
+    private fun favKey(item: CatalogItem) = "${item.playlistId}|${item.id}"
+
+    private fun loadFavs(): Set<String> =
+        parts.flatMap { part -> store.favorites(section, part.playlist.id).map { "${part.playlist.id}|$it" } }.toHashSet()
 
     private lateinit var itemAdapter: SimpleAdapter<CatalogItem>
 
@@ -91,8 +116,6 @@ class BrowseActivity : BaseActivity() {
         account = requireAccount() ?: return
         setContentView(R.layout.activity_browse)
         wide = wideLayout
-        favs = store.favorites(section)
-
         updated = findViewById(R.id.updated)
         refreshButton = findViewById(R.id.refresh)
         refreshing = findViewById(R.id.refreshing)
@@ -109,7 +132,9 @@ class BrowseActivity : BaseActivity() {
         epgEmpty = findViewById(R.id.epgEmpty)
         epgRv = findViewById(R.id.epgList)
 
-        findViewById<TextView>(R.id.title).text = section.title
+        val views = store.viewPlaylists()
+        findViewById<TextView>(R.id.title).text = if (views.size > 1) "${section.title} · ${views.size} playlists" else section.title
+        expanded.addAll(store.expandedPlaylists(section))
         findViewById<View>(R.id.back).setOnClickListener { finish() }
         refreshButton.text = "Refresh"
         refreshButton.setOnClickListener { refresh() }
@@ -121,9 +146,9 @@ class BrowseActivity : BaseActivity() {
         categoriesRv.layoutManager = LinearLayoutManager(this)
         categoriesRv.itemAnimator = null
         categoriesRv.adapter = catAdapter
-        catAdapter.onClick = { row, _ -> selectCategory(row.id) }
+        catAdapter.onClick = { row, _ -> if (row.header) toggleHeader(row.playlistId) else selectCategory(row.id) }
         catAdapter.onFocus = onFocus@{ row, _ ->
-            if (!tvMode) return@onFocus
+            if (!tvMode || row.header) return@onFocus
             catJob?.cancel()
             catJob = lifecycleScope.launch { delay(350); selectCategory(row.id) }
         }
@@ -141,19 +166,23 @@ class BrowseActivity : BaseActivity() {
     override fun onResume() {
         super.onResume()
         // Re-draw only if favourites, history or parental settings changed while away.
-        if (data != null && signature() != stateSignature) {
-            favs = store.favorites(section)
-            render(keepScroll = true)
-        }
-        updated.text = Fmt.ago(Catalog.lastUpdated(this, section))
+        if (data != null && signature() != stateSignature) render(keepScroll = true)
+        updated.text = updatedText()
     }
 
-    private fun signature(): String = listOf(
-        store.favorites(section).hashCode(),
-        if (section == Section.LIVE) store.history().hashCode() else 0,
-        store.hiddenCategories(section).hashCode(),
-        store.recentLimit, store.historyLimit,
-    ).joinToString("|")
+    private fun updatedText(): String {
+        val oldest = parts.map { Catalog.lastUpdated(this, section, it.playlist.id) }.filter { it > 0 }.minOrNull() ?: 0L
+        return Fmt.ago(oldest) + if (combined) " (oldest)" else ""
+    }
+
+    private fun signature(): String = parts.joinToString("|") { part ->
+        val pid = part.playlist.id
+        listOf(
+            store.favorites(section, pid).hashCode(),
+            if (section == Section.LIVE) store.history(pid).hashCode() else 0,
+            store.hiddenCategories(section, pid).hashCode(),
+        ).joinToString(",")
+    } + "|${store.recentLimit}|${store.historyLimit}"
 
     private fun addedOf(item: CatalogItem): Long = when (item) {
         is Movie -> item.added
@@ -191,16 +220,23 @@ class BrowseActivity : BaseActivity() {
         loading.visibility = View.VISIBLE
         empty.visibility = View.GONE
         lifecycleScope.launch {
-            try {
-                data = Catalog.load(this@BrowseActivity, section)
-                render(keepScroll = false)
-                focusFirstItem()
-            } catch (e: Exception) {
-                empty.text = "${Net.friendlyError(e)}\n\nPress Refresh to try again."
-                empty.visibility = View.VISIBLE
-            } finally {
-                loading.visibility = View.GONE
+            parts = store.viewPlaylists().map { pl ->
+                try {
+                    Part(pl, Catalog.load(this@BrowseActivity, section, pl.id), null)
+                } catch (e: Exception) {
+                    Part(pl, null, Net.friendlyError(e))
+                }
             }
+            loading.visibility = View.GONE
+            val failed = parts.filter { it.error != null }
+            if (data == null) {
+                empty.text = "${failed.firstOrNull()?.error ?: "Nothing loaded."}\n\nPress Refresh to try again."
+                empty.visibility = View.VISIBLE
+                return@launch
+            }
+            if (failed.isNotEmpty()) toast(failed.joinToString("\n") { "${it.playlist.name}: ${it.error}" }, long = true)
+            render(keepScroll = false)
+            focusFirstItem()
         }
     }
 
@@ -209,63 +245,95 @@ class BrowseActivity : BaseActivity() {
         refreshButton.isEnabled = false
         updated.text = "Refreshing ${section.title}…"
         lifecycleScope.launch {
-            try {
-                val d = Catalog.refresh(this@BrowseActivity, section)
-                data = d
-                render(keepScroll = false)
-                toast("${section.title} refreshed: ${d.items.size} items")
-            } catch (e: Exception) {
-                toast(Net.friendlyError(e), long = true)
-            } finally {
-                refreshing.visibility = View.GONE
-                refreshButton.isEnabled = true
-                updated.text = Fmt.ago(Catalog.lastUpdated(this@BrowseActivity, section))
+            var total = 0
+            val errors = ArrayList<String>()
+            parts = store.viewPlaylists().map { pl ->
+                try {
+                    Catalog.refresh(this@BrowseActivity, section, pl.id).also { total += it.items.size }.let { Part(pl, it, null) }
+                } catch (e: Exception) {
+                    errors += "${pl.name}: ${Net.friendlyError(e)}"
+                    Part(pl, runCatching { Catalog.load(this@BrowseActivity, section, pl.id) }.getOrNull(), Net.friendlyError(e))
+                }
             }
+            render(keepScroll = false)
+            if (errors.isEmpty()) toast("${section.title} refreshed: $total items") else toast(errors.joinToString("\n"), long = true)
+            refreshing.visibility = View.GONE
+            refreshButton.isEnabled = true
+            updated.text = updatedText()
         }
     }
 
+    private fun toggleHeader(pid: String) {
+        if (!expanded.add(pid)) expanded.remove(pid)
+        store.setExpandedPlaylists(section, expanded)
+        render(keepScroll = true)
+    }
+
     private fun render(keepScroll: Boolean) {
-        val d = data ?: return
+        if (data == null) return
         stateSignature = signature()
-        updated.text = Fmt.ago(d.updatedAt)
-        hidden = store.hiddenCategories(section)
-        visible = if (hidden.isEmpty()) d.items else d.items.filter { it.categoryId !in hidden }
+        updated.text = updatedText()
+        favs = loadFavs()
+        val vis = ArrayList<CatalogItem>()
+        val cats = HashMap<String, List<CatalogItem>>()
+        val recentLive = ArrayList<Pair<Long, CatalogItem>>()
+        for (part in parts) {
+            val d = part.data ?: continue
+            val pid = part.playlist.id
+            val hid = store.hiddenCategories(section, pid)
+            val partVisible = if (hid.isEmpty()) d.items else d.items.filter { it.categoryId !in hid }
+            vis.addAll(partVisible)
+            for ((cid, list) in d.byCategory) cats["$pid|$cid"] = list
+            if (section == Section.LIVE && store.historyLimit > 0) {
+                val byId = partVisible.associateBy { it.id }
+                for (id in store.history(pid)) byId[id]?.let { recentLive.add(store.historyTime(id, pid) to it) }
+            }
+        }
+        visible = vis
+        byCategory = cats
         recent = if (section == Section.LIVE) {
-            if (store.historyLimit > 0) {
-                val byId = visible.associateBy { it.id }
-                store.history().mapNotNull { byId[it] }.take(store.historyLimit)
-            } else emptyList()
+            recentLive.sortedByDescending { it.first }.map { it.second }.take(store.historyLimit)
         } else {
             if (store.recentLimit > 0) visible.filter { addedOf(it) > 0 }.sortedByDescending { addedOf(it) }.take(store.recentLimit)
             else emptyList()
         }
-        val counts = d.byCategory
         val rows = ArrayList<CatRow>()
         rows.add(CatRow(ALL, "All", visible.size))
-        rows.add(CatRow(FAV, "★  Favourites", visible.count { it.id in favs }))
+        rows.add(CatRow(FAV, "★  Favourites", visible.count { favKey(it) in favs }))
         if (section == Section.LIVE) {
             if (store.historyLimit > 0) rows.add(CatRow(RECENT, "Recently watched", recent.size))
         } else if (store.recentLimit > 0) {
             rows.add(CatRow(RECENT, "Recently added", recent.size))
         }
-        for (c in d.categories) {
-            if (c.id in hidden) continue
-            val n = counts[c.id]?.size ?: 0
-            if (n > 0) rows.add(CatRow(c.id, c.name, n))
+        for (part in parts) {
+            val d = part.data
+            val pid = part.playlist.id
+            val hid = store.hiddenCategories(section, pid)
+            if (combined) {
+                val n = d?.items?.count { it.categoryId !in hid } ?: 0
+                rows.add(CatRow("hdr|$pid", part.playlist.name + if (d == null) "  (not loaded)" else "", n, header = true, playlistId = pid))
+                if (pid !in expanded) continue
+            }
+            if (d == null) continue
+            for (c in d.categories) {
+                if (c.id in hid) continue
+                val n = d.byCategory[c.id]?.size ?: 0
+                if (n > 0) rows.add(CatRow("$pid|${c.id}", c.name, n, playlistId = pid))
+            }
         }
         catRows = rows
-        if (rows.none { it.id == currentCat }) currentCat = ALL
+        if (rows.none { it.id == currentCat } && !byCategory.containsKey(currentCat)) currentCat = ALL
         catAdapter.submit(rows)
         applyFilter(keepScroll)
     }
 
     private fun applyFilter(keepScroll: Boolean = false) {
-        val d = data ?: return
+        if (data == null) return
         val list: List<CatalogItem> = when {
             currentCat == ALL -> visible
-            currentCat == FAV -> visible.filter { it.id in favs }
+            currentCat == FAV -> visible.filter { favKey(it) in favs }
             currentCat == RECENT -> recent
-            else -> d.byCategory[currentCat].orEmpty()
+            else -> byCategory[currentCat].orEmpty()
         }
         itemAdapter.submit(list)
         if (!keepScroll) itemsRv.scrollToPosition(0)
@@ -281,7 +349,7 @@ class BrowseActivity : BaseActivity() {
                 currentCat == FAV -> "No favourites yet.\nHold OK (or long-press) on an item and choose Add to Favourites."
                 currentCat == RECENT && section == Section.LIVE -> "Channels you watch will appear here."
                 currentCat == RECENT -> "Nothing recently added."
-                d.items.isEmpty() -> "The server returned an empty list.\nPress Refresh to try again."
+                visible.isEmpty() -> "The server returned an empty list.\nPress Refresh to try again."
                 else -> "Nothing in $catName."
             }
             empty.visibility = View.VISIBLE
@@ -290,7 +358,11 @@ class BrowseActivity : BaseActivity() {
         }
     }
 
-    private fun currentCatName() = catRows.firstOrNull { it.id == currentCat }?.name ?: "All"
+    private fun currentCatName(): String {
+        val row = catRows.firstOrNull { it.id == currentCat } ?: return "All"
+        val pl = if (combined && row.playlistId.isNotEmpty()) parts.firstOrNull { it.playlist.id == row.playlistId }?.playlist?.name else null
+        return if (pl != null) "${row.name} ($pl)" else row.name
+    }
 
     private fun selectCategory(id: String) {
         if (id == currentCat) return
@@ -304,12 +376,16 @@ class BrowseActivity : BaseActivity() {
 
     private fun pickCategory() {
         if (catRows.isEmpty()) return
-        val names = catRows.map { "${it.name}  (${it.count})" }.toTypedArray()
+        val names = catRows.map {
+            if (it.header) (if (it.playlistId in expanded) "▼ " else "▶ ") + it.name.uppercase() + "  (${it.count})"
+            else (if (combined && it.playlistId.isNotEmpty()) "    " else "") + "${it.name}  (${it.count})"
+        }.toTypedArray()
         AlertDialog.Builder(this)
             .setTitle("Categories")
             .setSingleChoiceItems(names, catRows.indexOfFirst { it.id == currentCat }) { d, which ->
-                selectCategory(catRows[which].id)
+                val row = catRows[which]
                 d.dismiss()
+                if (row.header) { toggleHeader(row.playlistId); pickCategory() } else selectCategory(row.id)
             }
             .show()
     }
@@ -328,11 +404,20 @@ class BrowseActivity : BaseActivity() {
         v.findViewById<TextView>(R.id.num).text = ch.num
         v.findViewById<TextView>(R.id.name).text = ch.name
         v.findViewById<ImageView>(R.id.logo).loadImage(ch.image)
-        v.findViewById<View>(R.id.fav).visibility = if (ch.id in favs) View.VISIBLE else View.GONE
+        v.findViewById<View>(R.id.fav).visibility = if (favKey(ch) in favs) View.VISIBLE else View.GONE
+        v.findViewById<TextView>(R.id.sub).apply {
+            visibility = if (combined) View.VISIBLE else View.GONE
+            if (combined) text = playlistName(ch.playlistId)
+        }
     }
 
+    private fun playlistName(pid: String) = parts.firstOrNull { it.playlist.id == pid }?.playlist?.name.orEmpty()
+
+    private fun accountOf(item: CatalogItem): Account = store.accountFor(item.playlistId) ?: account
+
     private fun livePlayable(ch: LiveChannel) =
-        Playable(Kind.LIVE, ch.id, ch.name, account.liveUrl(ch.id, store.liveFormat), ch.image, ch.num)
+        Playable(Kind.LIVE, ch.id, ch.name, accountOf(ch).liveUrl(ch.id, store.liveFormat), ch.image, ch.num,
+            playlistId = ch.playlistId)
 
     private fun playChannel(position: Int, external: Boolean?) {
         val channels = itemAdapter.items.filterIsInstance<LiveChannel>()
@@ -342,7 +427,7 @@ class BrowseActivity : BaseActivity() {
     }
 
     private fun channelOptions(ch: LiveChannel, position: Int) {
-        val isFav = ch.id in favs
+        val isFav = favKey(ch) in favs
         val options = arrayOf(
             "Play",
             "Play in MX Player / VLC",
@@ -356,8 +441,7 @@ class BrowseActivity : BaseActivity() {
                     0 -> playChannel(position, external = false)
                     1 -> playChannel(position, external = true)
                     2 -> {
-                        val added = store.toggleFavorite(ch.id, section)
-                        favs = store.favorites(section)
+                        val added = store.toggleFavorite(ch.id, section, ch.playlistId)
                         toast(if (added) "Added to Favourites" else "Removed from Favourites")
                         render(keepScroll = true)
                     }
@@ -387,9 +471,10 @@ class BrowseActivity : BaseActivity() {
     }
 
     private suspend fun fetchGuide(ch: LiveChannel): List<Programme> {
-        val full = runCatching { Xtream.epg(account, ch.id, full = true) }.getOrDefault(emptyList())
+        val acc = accountOf(ch)
+        val full = runCatching { Xtream.epg(acc, ch.id, full = true) }.getOrDefault(emptyList())
         if (full.isNotEmpty()) return full
-        return runCatching { Xtream.epg(account, ch.id, full = false) }.getOrDefault(emptyList())
+        return runCatching { Xtream.epg(acc, ch.id, full = false) }.getOrDefault(emptyList())
     }
 
     private fun guideDialog(ch: LiveChannel) {
@@ -430,19 +515,19 @@ class BrowseActivity : BaseActivity() {
             is Show -> item.rating
             else -> null
         }?.toDoubleOrNull()?.takeIf { it > 0 }
-        if (rating != null) {
-            badge.text = "★ " + String.format(java.util.Locale.US, "%.1f", if (rating > 10) rating / 10 else rating)
-            badge.visibility = View.VISIBLE
-        } else {
-            badge.visibility = View.GONE
-        }
-        v.findViewById<View>(R.id.fav).visibility = if (item.id in favs) View.VISIBLE else View.GONE
+        val bits = listOfNotNull(
+            rating?.let { "★ " + String.format(java.util.Locale.US, "%.1f", if (it > 10) it / 10 else it) },
+            if (combined) playlistName(item.playlistId) else null,
+        )
+        badge.text = bits.joinToString("  ·  ")
+        badge.visibility = if (bits.isEmpty()) View.GONE else View.VISIBLE
+        v.findViewById<View>(R.id.fav).visibility = if (favKey(item) in favs) View.VISIBLE else View.GONE
     }
 
     private fun openDetails(item: CatalogItem) = openItemDetails(this, item)
 
     private fun posterOptions(item: CatalogItem) {
-        ItemOptions.show(this, section, item, account) { favs = store.favorites(section); render(keepScroll = true) }
+        ItemOptions.show(this, section, item, accountOf(item)) { render(keepScroll = true) }
     }
 
     // ---------------- Remote: MENU key opens options for the focused item ----------------

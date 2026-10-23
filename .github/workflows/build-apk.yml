@@ -80,3 +80,26 @@ jobs:
           name: Farloh TV ${{ env.VERSION }} (build ${{ github.run_number }})
           body: Download FarlohTV-v${{ env.VERSION }}.apk below and install it on your TV box, Fire Stick or phone.
           files: dist/*.apk
+
+      # dev only: a clearly labelled TEST pre-release for trying changes on a device.
+      # The file name never matches "FarlohTV-v<version>.apk", so the in-app Update button can't offer it,
+      # and it is marked pre-release / not latest, so it never replaces the real latest release.
+      - name: Prepare test APK
+        if: github.ref == 'refs/heads/dev'
+        run: |
+          mkdir -p test-dist
+          cp dist/FarlohTV-v${VERSION}.apk "test-dist/FarlohTV-TEST-build${{ github.run_number }}.apk"
+
+      - name: Publish TEST pre-release
+        if: github.ref == 'refs/heads/dev'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: test-build${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: "TEST build ${{ github.run_number }} – not a release (based on ${{ env.VERSION }})"
+          body: |
+            ⚠️ Test build for checking changes on a device. Not an official version.
+            Never announced in the app and never offered by the Update button.
+          prerelease: true
+          make_latest: "false"
+          files: test-dist/*.apk

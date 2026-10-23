@@ -134,7 +134,7 @@ class PlayerActivity : BaseActivity() {
         v.findViewById<TextView>(R.id.num).text = p.num.orEmpty()
         v.findViewById<TextView>(R.id.name).text = p.title
         v.findViewById<ImageView>(R.id.logo).loadImage(p.logo)
-        v.findViewById<View>(R.id.fav).visibility = if (p.id in favs) View.VISIBLE else View.GONE
+        v.findViewById<View>(R.id.fav).visibility = if (favKey(p) in favs) View.VISIBLE else View.GONE
         v.isSelected = pos == index
     }
 
@@ -145,7 +145,7 @@ class PlayerActivity : BaseActivity() {
         resumeOnStart = PlayQueue.resume
         if (items.isEmpty()) { finish(); return }
         account = store.account
-        favs = store.favorites()
+        favs = loadFavs()
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(R.layout.activity_player)
@@ -532,12 +532,12 @@ class PlayerActivity : BaseActivity() {
         retries = 0
         handler.removeCallbacks(reconnectRunnable)
         hideStatus()
-        val start = if (!isLive && resume) store.resumePosition(p.resumeKey) else 0L
+        val start = if (!isLive && resume) store.resumePosition(p.resumeKey, p.playlistId) else 0L
         exo.setMediaItem(mediaItem(p), start)
         exo.prepare()
         exo.play()
         if (isLive) {
-            store.addToHistory(p.id)
+            store.addToHistory(p.id, p.playlistId)
             nowNext = emptyList()
             showInfo(focusButtons = false)
             loadEpg()
@@ -638,7 +638,7 @@ class PlayerActivity : BaseActivity() {
     private fun onVideoEnded() {
         val exo = player ?: return
         val dur = exo.duration
-        if (dur > 0) store.savePosition(current.resumeKey, dur, dur)
+        if (dur > 0) store.savePosition(current.resumeKey, dur, dur, current.playlistId)
         if (index + 1 < items.size) {
             index++
             toast("Next: ${current.title}")
@@ -652,7 +652,7 @@ class PlayerActivity : BaseActivity() {
         val exo = player ?: return
         if (items.isEmpty() || isLive) return
         val dur = exo.duration
-        if (dur > 0 && dur != C.TIME_UNSET) store.savePosition(current.resumeKey, exo.currentPosition, dur)
+        if (dur > 0 && dur != C.TIME_UNSET) store.savePosition(current.resumeKey, exo.currentPosition, dur, current.playlistId)
     }
 
     private fun showStatus(msg: String) {
@@ -694,9 +694,15 @@ class PlayerActivity : BaseActivity() {
         playCurrent(resume = false)
     }
 
+    /** Favourites are per playlist; the key includes the playlist so the combined view works. */
+    private fun favKey(p: Playable) = "${p.playlistId.orEmpty()}|${p.id}"
+
+    private fun loadFavs(): Set<String> = items.map { it.playlistId }.distinct()
+        .flatMap { pid -> store.favorites(com.farloh.tv.data.Section.LIVE, pid).map { "${pid.orEmpty()}|$it" } }.toHashSet()
+
     private fun toggleFavorite() {
-        val added = store.toggleFavorite(current.id)
-        favs = store.favorites()
+        val added = store.toggleFavorite(current.id, com.farloh.tv.data.Section.LIVE, current.playlistId)
+        favs = loadFavs()
         toast(if (added) "Added to Favourites" else "Removed from Favourites")
         updateInfoBar()
     }
@@ -722,7 +728,7 @@ class PlayerActivity : BaseActivity() {
         val p = current
         chName.text = listOfNotNull(p.num?.takeIf { it.isNotBlank() }, p.title).joinToString("   ")
         chLogo.loadImage(p.logo)
-        val fav = p.id in favs
+        val fav = favKey(p) in favs
         btnFav.setImageResource(if (fav) R.drawable.ic_star else R.drawable.ic_star_border)
         btnFav.setColorFilter(androidx.core.content.ContextCompat.getColor(this, if (fav) R.color.accent else R.color.text))
         clock.text = Fmt.time(this, System.currentTimeMillis())
@@ -730,8 +736,8 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun loadEpg() {
-        val acc = account ?: return
         val p = current
+        val acc = store.accountFor(p.playlistId) ?: account ?: return
         epgJob?.cancel()
         epgJob = lifecycleScope.launch {
             val list = runCatching { Xtream.epg(acc, p.id, full = false) }.getOrDefault(emptyList())

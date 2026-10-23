@@ -66,7 +66,7 @@ class HomeActivity : BaseActivity() {
         findViewById<View>(R.id.bell).visibility = if (com.farloh.tv.data.Feed.configured) View.VISIBLE else View.GONE
         tiles.getValue(Section.LIVE).card.requestFocus()
 
-        if (!store.initialLoadDone) firstLoad()
+        if (store.viewPlaylists().any { !store.isLoaded(it.id) }) firstLoad()
     }
 
     override fun onResume() {
@@ -140,7 +140,8 @@ class HomeActivity : BaseActivity() {
     }
 
     private fun showHeader() {
-        playlistButton.text = store.activePlaylist?.name ?: "Playlist"
+        val views = store.viewPlaylists()
+        playlistButton.text = if (views.size > 1) "Combined: " + views.joinToString(" + ") { it.name } else store.activePlaylist?.name ?: "Playlist"
         val info = store.userInfo
         val exp = info?.optString("exp_date")?.toLongOrNull()
         val expiry = if (exp != null && exp > 0) "Expires ${Fmt.date(exp * 1000)}" else "No expiry date"
@@ -151,14 +152,15 @@ class HomeActivity : BaseActivity() {
 
     private fun updateTile(section: Section) {
         val tile = tiles[section] ?: return
-        val n = store.itemCount(section)
+        val counts = store.viewPlaylists().map { store.itemCount(section, it.id) }.filter { it >= 0 }
+        val n = if (counts.isEmpty()) -1 else counts.sum()
         tile.count.text = when {
             n < 0 -> "Not loaded yet"
             section == Section.LIVE -> Fmt.count(n, "channel", "channels")
             section == Section.MOVIES -> Fmt.count(n, "movie", "movies")
             else -> Fmt.count(n, "show", "shows")
         }
-        tile.updated.text = Fmt.ago(Catalog.lastUpdated(this, section))
+        tile.updated.text = Fmt.ago(store.viewPlaylists().map { Catalog.lastUpdated(this, section, it.id) }.filter { it > 0 }.minOrNull() ?: 0L)
         val isBusy = section in busy
         tile.spinner.visibility = if (isBusy) View.VISIBLE else View.GONE
         tile.refresh.isEnabled = !isBusy
@@ -176,15 +178,20 @@ class HomeActivity : BaseActivity() {
         busy.add(section)
         updateTile(section)
         lifecycleScope.launch {
-            try {
-                val data = Catalog.refresh(this@HomeActivity, section)
-                if (!quiet) toast("${section.title} refreshed: ${data.items.size} items")
-            } catch (e: Exception) {
-                toast("${section.title}: ${Net.friendlyError(e)}", long = true)
-            } finally {
-                busy.remove(section)
-                updateTile(section)
+            val views = store.viewPlaylists()
+            var total = 0
+            val errors = ArrayList<String>()
+            for (pl in views) {
+                try {
+                    total += Catalog.refresh(this@HomeActivity, section, pl.id).items.size
+                } catch (e: Exception) {
+                    errors += (if (views.size > 1) "${pl.name}: " else "") + Net.friendlyError(e)
+                }
             }
+            busy.remove(section)
+            updateTile(section)
+            if (errors.isNotEmpty()) toast("${section.title}: " + errors.joinToString("\n"), long = true)
+            else if (!quiet) toast("${section.title} refreshed: $total items")
         }
     }
 
@@ -192,19 +199,21 @@ class HomeActivity : BaseActivity() {
     private fun firstLoad() {
         Section.values().forEach { busy.add(it); updateTile(it) }
         lifecycleScope.launch {
-            var allOk = true
+            val pending = store.viewPlaylists().filter { !store.isLoaded(it.id) }
+            val ok = pending.associate { it.id to true }.toMutableMap()
             for (section in Section.values()) {
-                try {
-                    Catalog.refresh(this@HomeActivity, section)
-                } catch (e: Exception) {
-                    allOk = false
-                    toast("${section.title}: ${Net.friendlyError(e)}", long = true)
-                } finally {
-                    busy.remove(section)
-                    updateTile(section)
+                for (pl in pending) {
+                    try {
+                        Catalog.refresh(this@HomeActivity, section, pl.id)
+                    } catch (e: Exception) {
+                        ok[pl.id] = false
+                        toast((if (pending.size > 1) "${pl.name} – " else "") + "${section.title}: ${Net.friendlyError(e)}", long = true)
+                    }
                 }
+                busy.remove(section)
+                updateTile(section)
             }
-            if (allOk) store.initialLoadDone = true
+            ok.filterValues { it }.keys.forEach { store.setLoaded(it) }
         }
     }
 
@@ -212,15 +221,21 @@ class HomeActivity : BaseActivity() {
 
     private fun showPlaylists() {
         val all = store.playlists()
+        val combined = store.isCombined
         val activeId = store.activePlaylist?.id
-        val labels = all.map { (if (it.id == activeId) "✓  " else "     ") + it.name + "   (${it.account.username})" } +
-            listOf("+  Add playlist", "⚙  Manage playlists…")
+        val labels = all.map { (if (!combined && it.id == activeId) "✓  " else "     ") + it.name + "   (${it.account.username})" }.toMutableList()
+        val combineAt = labels.size
+        if (all.size >= 2) labels += (if (combined) "✓  " else "") + "◆  Combine playlists…"
+        val addAt = labels.size
+        labels += "+  Add playlist"
+        labels += "⚙  Manage playlists…"
         AlertDialog.Builder(this)
             .setTitle("Playlists")
             .setItems(labels.toTypedArray()) { _, which ->
                 when {
-                    which < all.size -> if (all[which].id != activeId) switchTo(all[which])
-                    which == all.size -> startActivity(Intent(this, LoginActivity::class.java).putExtra(LoginActivity.EXTRA_ADD, true))
+                    which < all.size -> if (combined || all[which].id != activeId) switchTo(all[which])
+                    all.size >= 2 && which == combineAt -> chooseCombined()
+                    which == addAt -> startActivity(Intent(this, LoginActivity::class.java).putExtra(LoginActivity.EXTRA_ADD, true))
                     else -> startActivity(Intent(this, SettingsActivity::class.java).putExtra(SettingsActivity.EXTRA_OPEN, "playlist"))
                 }
             }
@@ -228,7 +243,29 @@ class HomeActivity : BaseActivity() {
             .show()
     }
 
+    /** Pick 2 or more playlists to show together. Each keeps its own categories. */
+    private fun chooseCombined() {
+        val all = store.playlists()
+        val current = store.combinedIds.ifEmpty { all.map { it.id }.toSet() }
+        val checked = BooleanArray(all.size) { all[it].id in current }
+        AlertDialog.Builder(this)
+            .setTitle("Combine playlists")
+            .setMultiChoiceItems(all.map { it.name }.toTypedArray(), checked) { _, i, on -> checked[i] = on }
+            .setPositiveButton("Combine") { _, _ ->
+                val ids = all.filterIndexed { i, _ -> checked[i] }.map { it.id }
+                if (ids.size < 2) { toast("Choose at least 2 playlists", long = true); return@setPositiveButton }
+                store.combinedIds = ids.toSet()
+                store.combinedOn = true
+                if (store.activePlaylist?.id !in ids) store.setActive(ids.first())
+                toast("Showing ${ids.size} playlists together")
+                restartHome()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     private fun switchTo(p: Playlist) {
+        store.combinedOn = false
         store.setActive(p.id)
         toast("Switched to ${p.name}")
         restartHome()

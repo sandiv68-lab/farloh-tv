@@ -101,7 +101,7 @@ object Downloads {
         if (p.kind == Kind.LIVE) return "Live channels can't be downloaded."
         if (find(ctx, p.resumeKey) != null) return "Already in Downloads."
         val store = Store.get(ctx)
-        val playlist = store.activePlaylist ?: return "Not signed in."
+        val playlist = store.playlist(p.playlistId) ?: return "Not signed in."
         val ext = p.ext?.ifBlank { null } ?: p.url.substringAfterLast('.', "mp4").substringBefore('?')
         val entry = DownloadEntry(
             key = p.resumeKey, kind = p.kind, streamId = p.id, title = p.title, showTitle = p.subtitle,
@@ -193,7 +193,7 @@ object Downloads {
         return Playable(
             kind = e.kind, id = e.streamId, title = e.title, url = Uri.fromFile(f).toString(), logo = e.image,
             subtitle = e.showTitle, searchTitle = e.showTitle ?: e.title, tmdbId = e.tmdbId,
-            season = e.season, episode = e.episode, ext = e.ext,
+            season = e.season, episode = e.episode, ext = e.ext, playlistId = e.playlistId.ifEmpty { null },
         )
     }
 }
