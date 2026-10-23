@@ -603,27 +603,27 @@ class PlayerActivity : BaseActivity() {
      * even though only one stream is loaded at a time.
      */
     private fun queuePlayer(exo: ExoPlayer): Player = object : androidx.media3.common.ForwardingPlayer(exo) {
-        private fun hasNext() = !isLive && index + 1 < items.size
-        private fun hasPrev() = !isLive && index > 0
+        private fun canGoNext() = !isLive && index + 1 < items.size
+        private fun canGoPrev() = !isLive && index > 0
 
         override fun getAvailableCommands(): Player.Commands {
             val b = super.getAvailableCommands().buildUpon()
-            if (hasNext()) b.addAll(Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+            if (canGoNext()) b.addAll(Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
             if (!isLive) b.add(Player.COMMAND_SEEK_TO_PREVIOUS)
-            if (hasPrev()) b.add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+            if (canGoPrev()) b.add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
             return b.build()
         }
 
         override fun isCommandAvailable(command: Int): Boolean = getAvailableCommands().contains(command)
-        override fun hasNextMediaItem() = hasNext()
-        override fun hasPreviousMediaItem() = hasPrev()
+        override fun hasNextMediaItem() = canGoNext() || super.hasNextMediaItem()
+        override fun hasPreviousMediaItem() = canGoPrev()
 
-        override fun seekToNext() { if (hasNext()) goToItem(index + 1) else super.seekToNext() }
-        override fun seekToNextMediaItem() { if (hasNext()) goToItem(index + 1) }
-        override fun seekToPreviousMediaItem() { if (hasPrev()) goToItem(index - 1) }
+        override fun seekToNext() { if (canGoNext()) goToItem(index + 1) else super.seekToNext() }
+        override fun seekToNextMediaItem() { if (canGoNext()) goToItem(index + 1) }
+        override fun seekToPreviousMediaItem() { if (canGoPrev()) goToItem(index - 1) }
         override fun seekToPrevious() {
             // Like most players: restart the episode, or go to the previous one if we're near the start.
-            if (hasPrev() && currentPosition < 5_000) goToItem(index - 1) else seekTo(0)
+            if (canGoPrev() && currentPosition < 5_000) goToItem(index - 1) else seekTo(0)
         }
     }
 
