@@ -229,7 +229,7 @@ class SettingsActivity : BaseActivity() {
                 store.videoResize = it; refresh()
             }
         }
-        r += Row.Item("Touch gestures", onOff(store.playerGestures),
+        if (!tvMode) r += Row.Item("Touch gestures", onOff(store.playerGestures),
             "Left side: brightness • Right side: volume • Sideways: seek • Pinch: zoom • Double-tap: ±10 s") {
             store.playerGestures = !store.playerGestures; refresh()
         }
@@ -334,7 +334,7 @@ class SettingsActivity : BaseActivity() {
                 if (it != store.textZoom) { store.textZoom = it; restartApp() }
             }
         }
-        r += Row.Item("Screen orientation", if (store.orientation == "auto") "Auto-rotate" else "Landscape") {
+        if (!tvMode) r += Row.Item("Screen orientation", if (store.orientation == "auto") "Auto-rotate" else "Landscape") {
             Dialogs.choose(this, "Screen orientation", listOf("Landscape (recommended)", "Auto-rotate"),
                 listOf("landscape", "auto"), store.orientation) {
                 if (it != store.orientation) { store.orientation = it; restartApp() }
@@ -417,15 +417,17 @@ class SettingsActivity : BaseActivity() {
             backup.startRestore()
         }
 
-        r += Row.Header("Playlist", "playlist", R.drawable.ic_playlist, store.activePlaylist?.name.orEmpty())
-        r += Row.Item("Account info", store.account?.username.orEmpty()) { showAccountInfo() }
-        r += Row.Item("Clear saved lists", "", "Live TV, Movies and TV Shows download again next time") {
-            Dialogs.confirm(this, "Clear saved lists?", "They will download again next time you open each section.") {
-                Catalog.clear(this)
-                Section.values().forEach { store.setItemCount(it, -1) }
-                toast("Saved lists cleared")
-            }
+        val all = store.playlists()
+        val activeId = store.activePlaylist?.id
+        r += Row.Header("Playlists", "playlist", R.drawable.ic_playlist,
+            "${all.size} playlist(s) • using ${store.activePlaylist?.name.orEmpty()}")
+        for (p in all) {
+            r += Row.Item((if (p.id == activeId) "✓  " else "") + p.name, p.account.username, p.account.server) { playlistOptions(p) }
         }
+        r += Row.Item("+  Add playlist", "") {
+            startActivity(Intent(this, LoginActivity::class.java).putExtra(LoginActivity.EXTRA_ADD, true))
+        }
+        r += Row.Item("Account info (current playlist)", store.account?.username.orEmpty()) { showAccountInfo() }
 
         r += Row.Header("About", "about", R.drawable.ic_info, "Version ${BuildConfig.VERSION_NAME}")
         r += Row.Item("Farloh TV", "Version ${BuildConfig.VERSION_NAME}") { }
@@ -554,6 +556,51 @@ class SettingsActivity : BaseActivity() {
             )
             AlertDialog.Builder(this@SettingsActivity).setTitle("DNS test").setMessage(msg).setPositiveButton("OK", null).show()
         }
+    }
+
+    // ---------------- Playlists ----------------
+
+    private fun playlistOptions(p: com.farloh.tv.data.Playlist) {
+        val active = p.id == store.activePlaylist?.id
+        val opts = ArrayList<Pair<String, () -> Unit>>()
+        if (!active) opts += "Use this playlist" to {
+            store.setActive(p.id); restartHome("Switched to ${p.name}")
+        }
+        opts += "Edit server & login" to {
+            startActivity(Intent(this, LoginActivity::class.java).putExtra(LoginActivity.EXTRA_EDIT, p.id))
+        }
+        opts += "Rename" to {
+            Dialogs.input(this, "Playlist name", p.name) { name ->
+                store.updatePlaylist(p.id, name = name.trim().ifEmpty { p.name }); refresh()
+            }
+        }
+        opts += "Clear saved lists" to {
+            Dialogs.confirm(this, "Clear ${p.name}'s saved lists?", "They'll download again next time you open each section.", "Clear") {
+                Catalog.deleteFor(this, p.id); store.resetLoaded(p.id); toast("Saved lists cleared"); remeasure()
+            }
+        }
+        opts += "Remove from this device" to {
+            Dialogs.confirm(this, "Remove ${p.name}?",
+                "Its login, favourites and saved lists will be deleted from this device.", "Remove") {
+                Catalog.deleteFor(this, p.id)
+                val next = store.removePlaylist(p.id)
+                if (next == null || active) restartHome("${p.name} removed") else { refresh(); toast("${p.name} removed") }
+            }
+        }
+        AlertDialog.Builder(this)
+            .setTitle(p.name)
+            .setItems(opts.map { it.first }.toTypedArray()) { _, which -> opts[which].second() }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun restartHome(message: String) {
+        Catalog.clearMemory()
+        Xtream.clearCache()
+        toast(message)
+        val target = if (store.account == null) LoginActivity::class.java else HomeActivity::class.java
+        startActivity(Intent(this, target).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+        finish()
     }
 
     // ---------------- Misc ----------------

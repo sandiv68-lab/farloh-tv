@@ -26,6 +26,8 @@ class LoginActivity : BaseActivity() {
 
     companion object {
         const val EXTRA_ADD = "add_playlist"
+        /** Playlist id to edit (server, username, password, name). */
+        const val EXTRA_EDIT = "edit_playlist"
     }
 
     private lateinit var playlistName: EditText
@@ -36,11 +38,13 @@ class LoginActivity : BaseActivity() {
     private lateinit var progress: ProgressBar
     private lateinit var error: TextView
     private var addMode = false
+    private var editing: com.farloh.tv.data.Playlist? = null
     private val backup = BackupFlow(this)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        addMode = intent.getBooleanExtra(EXTRA_ADD, false)
+        editing = intent.getStringExtra(EXTRA_EDIT)?.let { id -> store.playlists().firstOrNull { it.id == id } }
+        addMode = intent.getBooleanExtra(EXTRA_ADD, false) || editing != null
         if (!addMode && store.account != null) {
             openHome()
             return
@@ -62,9 +66,15 @@ class LoginActivity : BaseActivity() {
             visibility = if (addMode) View.GONE else View.VISIBLE
             setOnClickListener { backup.startRestore() }
         }
+        editing?.let { p ->
+            playlistName.setText(p.name)
+            server.setText(p.account.server)
+            username.setText(p.account.username)
+            password.setText(p.account.password)
+        }
         if (addMode) {
-            findViewById<TextView>(R.id.heading).text = "Add a playlist"
-            signIn.text = "Add playlist"
+            findViewById<TextView>(R.id.heading).text = if (editing != null) "Edit playlist" else "Add a playlist"
+            signIn.text = if (editing != null) "Save" else "Add playlist"
             findViewById<Button>(R.id.cancel).apply {
                 visibility = View.VISIBLE
                 setOnClickListener { finish() }
@@ -100,6 +110,23 @@ class LoginActivity : BaseActivity() {
                 if (!result.ok) {
                     showError(result.message ?: "Login failed.")
                 } else {
+                    val edit = editing
+                    if (edit != null) {
+                        val changed = !edit.account.server.equals(account.server, true) || edit.account.username != account.username
+                        store.updatePlaylist(edit.id, name = name, account = account)
+                        if (changed) { Catalog.deleteFor(this@LoginActivity, edit.id); store.resetLoaded(edit.id) }
+                        val wasActive = edit.id == store.activePlaylist?.id
+                        if (wasActive) store.userInfo = result.userInfo
+                        Catalog.clearMemory()
+                        Xtream.clearCache()
+                        toast("${name} saved")
+                        if (wasActive) {
+                            startActivity(Intent(this@LoginActivity, HomeActivity::class.java)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+                        }
+                        finish()
+                        return@launch
+                    }
                     // Same server + username already saved: update it instead of adding a duplicate.
                     val existing = store.playlists().firstOrNull {
                         it.account.server.equals(account.server, true) && it.account.username == account.username

@@ -205,52 +205,18 @@ class HomeActivity : BaseActivity() {
         val all = store.playlists()
         val activeId = store.activePlaylist?.id
         val labels = all.map { (if (it.id == activeId) "✓  " else "     ") + it.name + "   (${it.account.username})" } +
-            listOf("+  Add playlist", "✎  Rename or remove…")
+            listOf("+  Add playlist", "⚙  Manage playlists…")
         AlertDialog.Builder(this)
             .setTitle("Playlists")
             .setItems(labels.toTypedArray()) { _, which ->
                 when {
                     which < all.size -> if (all[which].id != activeId) switchTo(all[which])
                     which == all.size -> startActivity(Intent(this, LoginActivity::class.java).putExtra(LoginActivity.EXTRA_ADD, true))
-                    else -> pickPlaylistToEdit()
+                    else -> startActivity(Intent(this, SettingsActivity::class.java).putExtra(SettingsActivity.EXTRA_OPEN, "playlist"))
                 }
             }
             .setNegativeButton("Close", null)
             .show()
-    }
-
-    private fun pickPlaylistToEdit() {
-        val all = store.playlists()
-        AlertDialog.Builder(this)
-            .setTitle("Rename or remove")
-            .setItems(all.map { it.name }.toTypedArray()) { _, which -> editPlaylist(all[which]) }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun editPlaylist(p: Playlist) {
-        AlertDialog.Builder(this)
-            .setTitle(p.name)
-            .setItems(arrayOf("Rename", "Remove from this device")) { _, which ->
-                if (which == 0) {
-                    Dialogs.input(this, "Playlist name", p.name) { name ->
-                        store.updatePlaylist(p.id, name = name.trim().ifEmpty { p.name })
-                        showHeader()
-                    }
-                } else {
-                    Dialogs.confirm(this, "Remove ${p.name}?",
-                        "Its login, favourites and saved lists will be deleted from this device.", "Remove") { removePlaylist(p) }
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun removePlaylist(p: Playlist) {
-        val wasActive = p.id == store.activePlaylist?.id
-        Catalog.deleteFor(this, p.id)
-        val next = store.removePlaylist(p.id)
-        if (next == null || wasActive) restartHome() else showHeader()
     }
 
     private fun switchTo(p: Playlist) {

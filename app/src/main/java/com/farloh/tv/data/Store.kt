@@ -100,6 +100,13 @@ class Store private constructor(context: Context) {
         return activePlaylist
     }
 
+    /** Forget that a playlist's lists were loaded (after its server or login changed). */
+    fun resetLoaded(playlistId: String) {
+        val e = prefs.edit()
+        prefs.all.keys.filter { it == "$playlistId:initial_load_done" || it.startsWith("$playlistId:count_") }.forEach { e.remove(it) }
+        e.apply()
+    }
+
     private fun scopeId(): String = activePlaylist?.id ?: "none"
     private fun k(name: String) = "${scopeId()}:$name"
 
