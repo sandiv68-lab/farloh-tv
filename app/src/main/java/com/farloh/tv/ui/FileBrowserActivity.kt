@@ -34,7 +34,8 @@ class FileBrowserActivity : BaseActivity() {
                 .putExtra(EXTRA_TITLE, title)
     }
 
-    private class Entry(val file: File, val label: String, val detail: String, val isDir: Boolean)
+    /** [up] = the "go up" row: [file] is where it goes (null = the list of storage places). */
+    private class Entry(val file: File?, val label: String, val detail: String, val isDir: Boolean, val up: Boolean = false)
 
     private lateinit var pathView: TextView
     private lateinit var empty: TextView
@@ -45,7 +46,11 @@ class FileBrowserActivity : BaseActivity() {
     private val positions = HashMap<String, Int>()
 
     private val adapter = SimpleAdapter<Entry>(R.layout.row_category, 1.02f) { v, e, _ ->
-        v.findViewById<TextView>(R.id.name).text = (if (e.isDir) "▸  " else "•  ") + e.label
+        v.findViewById<TextView>(R.id.name).text = when {
+            e.up -> "▲  " + e.label
+            e.isDir -> "▸  " + e.label
+            else -> "•  " + e.label
+        }
         v.findViewById<TextView>(R.id.count).text = e.detail
     }
 
@@ -65,12 +70,17 @@ class FileBrowserActivity : BaseActivity() {
             override fun handleOnBackPressed() = goUp()
         })
         adapter.onClick = { e, pos ->
-            if (e.isDir) { current?.let { positions[it.path] = pos }; open(e.file) }
-            else {
-                setResult(Activity.RESULT_OK, Intent().setData(Uri.fromFile(e.file)))
-                finish()
+            when {
+                e.up -> goUp()
+                e.isDir -> { current?.let { positions[it.path] = pos }; open(e.file) }
+                else -> {
+                    setResult(Activity.RESULT_OK, Intent().setData(Uri.fromFile(e.file!!)))
+                    finish()
+                }
             }
         }
+        findViewById<TextView>(R.id.hint).text = "Press a folder (▸) to open it. \"▲\" or Back goes up / to other places (internal storage, USB).\n" +
+            "Tip: you can also open the file from your file manager app and choose Farloh TV."
         // Start in Download if it's readable, otherwise at the list of storage places.
         val dl = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         open(if (dl.canRead() && dl.list() != null) dl else null)
@@ -83,16 +93,22 @@ class FileBrowserActivity : BaseActivity() {
         out += Entry(main, "Internal storage", "", true)
         for (dir in getExternalFilesDirs(null).filterNotNull()) {
             val root = dir.path.substringBefore("/Android/data").let(::File)
-            if (root.path != main.path && out.none { it.file.path == root.path }) out += Entry(root, "USB / SD card (${root.name})", "", true)
+            if (root.path != main.path && out.none { it.file?.path == root.path }) out += Entry(root, "USB / SD card (${root.name})", "", true)
         }
         // Mount points that show up without an app folder (some TV boxes).
         File("/storage").listFiles()?.filter { it.isDirectory && it.canRead() && it.name != "emulated" && it.name != "self" }
-            ?.forEach { r -> if (out.none { it.file.path == r.path }) out += Entry(r, "USB / SD card (${r.name})", "", true) }
+            ?.forEach { r -> if (out.none { it.file?.path == r.path }) out += Entry(r, "USB / SD card (${r.name})", "", true) }
         File("/mnt/media_rw").listFiles()?.filter { it.isDirectory && it.canRead() }
-            ?.forEach { r -> if (out.none { it.file.name == r.name }) out += Entry(r, "USB drive (${r.name})", "", true) }
+            ?.forEach { r -> if (out.none { it.file?.name == r.name }) out += Entry(r, "USB drive (${r.name})", "", true) }
         val dl = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         out.add(0, Entry(dl, "Download folder", "", true))
         return out
+    }
+
+    private fun upTarget(dir: File): File? {
+        val isRoot = roots().any { it.file?.path == dir.path }
+        val parent = dir.parentFile
+        return if (isRoot || parent == null || parent.listFiles() == null) null else parent
     }
 
     private fun open(dir: File?) {
@@ -107,16 +123,20 @@ class FileBrowserActivity : BaseActivity() {
                     val matches = files.filter { f -> f.isFile && (exts.isEmpty() || f.extension.lowercase() in exts) }
                         .sortedByDescending { it.lastModified() }
                         .map { Entry(it, it.name, Fmt.date(it.lastModified()), false) }
-                    matches + dirs // the files you're looking for first
+                    val up = upTarget(dir).let { t ->
+                        Entry(t, if (t == null) "Other places (internal storage, USB drives)" else "Up to ${t.name.ifBlank { t.path }}", "", true, up = true)
+                    }
+                    listOf(up) + matches + dirs // the files you're looking for first
                 }
             }
             if (current != dir) return@launch
             adapter.submit(entries)
             val back = dir?.let { positions[it.path] } ?: 0
-            empty.visibility = if (entries.isEmpty()) View.VISIBLE else View.GONE
+            val nothing = entries.none { !it.up }
+            empty.visibility = if (nothing) View.VISIBLE else View.GONE
             empty.text = if (dir != null && dir.listFiles() == null)
-                "Can't look inside this folder.\nGive Farloh TV file access, or open the file from your file manager app."
-            else "Nothing here.\nLooking for: " + exts.joinToString(", ") { ".$it" }
+                "Can't look inside this folder.\nGive Farloh TV file access (Settings → Device), or open the file from your file manager app."
+            else "No folders or " + exts.joinToString(" / ") { ".$it" } + " files here."
             listRv.scrollToPosition(0)
             listRv.post {
                 (listRv.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(back.coerceAtMost((entries.size - 1).coerceAtLeast(0)), 0)
@@ -127,9 +147,7 @@ class FileBrowserActivity : BaseActivity() {
 
     private fun goUp() {
         val dir = current ?: run { finish(); return }
-        val isRoot = roots().any { it.file.path == dir.path }
-        val parent = dir.parentFile
-        open(if (isRoot || parent == null || parent.listFiles() == null) null else parent)
+        open(upTarget(dir))
     }
 
 }

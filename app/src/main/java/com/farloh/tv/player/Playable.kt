@@ -50,6 +50,8 @@ object Launcher {
         categoryName: String = "",
     ) {
         if (items.isEmpty()) return
+        // Something new is being played: stop the mini player (if one is running).
+        com.farloh.tv.ui.MiniPlayer.close(activity)
         val i = index.coerceIn(0, items.size - 1)
         if (external ?: Store.get(activity).externalByDefault) {
             External.open(activity, items[i])

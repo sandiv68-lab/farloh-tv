@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Farloh TV's own picture-in-picture: a small video window over the app (for TVs without Android's PiP). -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="320dp" android:layout_height="180dp"
+    android:background="@drawable/focus_bg" android:clickable="true" android:focusable="true"
+    android:contentDescription="Mini player" android:padding="3dp">
+    <androidx.media3.ui.PlayerView android:id="@+id/miniVideo" android:layout_width="match_parent"
+        android:layout_height="match_parent" android:background="#000000" android:focusable="false"
+        app:resize_mode="fit" app:shutter_background_color="#000000" app:surface_type="texture_view"
+        app:use_controller="false" />
+    <TextView android:id="@+id/miniHint" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_gravity="bottom" android:background="#B3000000" android:gravity="center" android:padding="4dp"
+        android:text="OK: full screen   •   Back: close" android:textColor="#FFFFFF" android:textSize="12sp"
+        android:visibility="gone" />
+    <TextView android:id="@+id/miniClose" android:layout_width="32dp" android:layout_height="32dp"
+        android:layout_gravity="top|end" android:background="#99000000" android:focusable="false" android:gravity="center"
+        android:text="✕" android:textColor="#FFFFFF" android:textSize="16sp" />
+</FrameLayout>

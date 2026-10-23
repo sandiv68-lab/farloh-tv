@@ -76,9 +76,8 @@ class StorageAccess(private val activity: BaseActivity) {
 }
 
 /**
- * Lets the user choose a file: Android's own picker on phones; on TVs a choice of the built-in browser
- * (this device + USB drives) or any installed file manager app. Always mentions the
- * "open it from your file manager" shortcut, which works everywhere.
+ * Lets the user choose a file: Android's own picker on phones; on TVs the built-in browser
+ * (this device + USB drives). Mentions the "open it from your file manager" shortcut, which works everywhere.
  */
 class FilePicker(
     private val activity: BaseActivity,
@@ -93,9 +92,6 @@ class FilePicker(
     private val openDoc = activity.registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) onPicked(uri)
     }
-    private val fromApp = activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
-        res.data?.data?.let(onPicked)
-    }
     private val browser = activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         res.data?.data?.let(onPicked)
     }
@@ -103,18 +99,12 @@ class FilePicker(
     private val tip get() = "Tip: you can also find the $what in your file manager app (e.g. File Commander) and open it – " +
         "choose Farloh TV and it loads straight away."
 
+    /** Phones: Android's own picker. TVs: Farloh TV's built-in browser (TV file manager apps often can't hand files back). */
     fun pick() {
         if (!activity.tvMode) {
-            try { openDoc.launch(arrayOf("*/*")); return } catch (e: ActivityNotFoundException) { /* use the TV choice */ }
+            try { openDoc.launch(arrayOf("*/*")); return } catch (e: ActivityNotFoundException) { /* use the browser */ }
         }
-        AlertDialog.Builder(activity)
-            .setTitle("Choose the $what")
-            .setMessage("• Built-in browser: look through this device and USB drives.\n" +
-                "• File manager app: pick it with File Commander, X-plore or similar.\n\n$tip")
-            .setPositiveButton("Built-in browser") { _, _ -> browse() }
-            .setNeutralButton("File manager app") { _, _ -> withApp() }
-            .setNegativeButton("Cancel", null)
-            .show()
+        browse()
     }
 
     private fun browse() {
@@ -126,35 +116,9 @@ class FilePicker(
                 AlertDialog.Builder(activity).setTitle("File access not allowed")
                     .setMessage("Farloh TV needs file access to look through this device.\n\n$tip")
                     .setPositiveButton("Try again") { _, _ -> browse() }
-                    .setNeutralButton("File manager app") { _, _ -> withApp() }
                     .setNegativeButton("Close", null).show()
             }
         }
-    }
-
-    private fun withApp() {
-        // File managers often hand back a plain file path, which needs file access to read.
-        if (!StorageAccess.granted(activity) && StorageAccess.canAsk(activity)) {
-            access.request { launchApp() }
-        } else launchApp()
-    }
-
-    private fun launchApp() {
-        val intent = Intent(Intent.ACTION_GET_CONTENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE)
-        val apps = activity.packageManager.queryIntentActivities(intent, 0)
-        if (apps.isEmpty()) { noApp(); return }
-        try {
-            fromApp.launch(Intent.createChooser(intent, "Open the $what with"))
-        } catch (e: ActivityNotFoundException) {
-            noApp()
-        }
-    }
-
-    private fun noApp() {
-        AlertDialog.Builder(activity).setTitle("No file manager app can pick files")
-            .setMessage("Use the built-in browser instead.\n\n$tip")
-            .setPositiveButton("Built-in browser") { _, _ -> browse() }
-            .setNegativeButton("Close", null).show()
     }
 
     /** Shown when a picked file couldn't be read. */

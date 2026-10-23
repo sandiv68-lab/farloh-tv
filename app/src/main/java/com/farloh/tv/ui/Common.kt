@@ -94,6 +94,16 @@ open class BaseActivity : AppCompatActivity() {
         if (store.orientation == "auto") requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
     }
 
+    override fun onResume() {
+        super.onResume()
+        MiniPlayer.attach(this)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        MiniPlayer.detach(this)
+    }
+
     override fun setContentView(layoutResID: Int) {
         super.setContentView(layoutResID)
         applySafeInsets()
@@ -125,6 +135,34 @@ open class BaseActivity : AppCompatActivity() {
             finish()
         }
         return account
+    }
+}
+
+/**
+ * The zoom + orange outline on the focused item (TV remote), kept inside the room every list has around it,
+ * so the outline is never cut off at the edges — however wide or tall the item is.
+ */
+object FocusZoom {
+    /** Space kept around every list (each side), in dp. */
+    private const val ROOM_DP = 8
+    /** How far a focused item may grow past its own edges (each side), in dp. Less than ROOM_DP. */
+    private const val GROW_DP = 5
+
+    fun prepare(rv: RecyclerView) {
+        if (rv.getTag(R.id.focus_room) != null) return
+        rv.setTag(R.id.focus_room, true)
+        val room = (rv.resources.displayMetrics.density * ROOM_DP).toInt()
+        rv.clipToPadding = false
+        rv.clipChildren = false
+        rv.setPadding(rv.paddingLeft + room, rv.paddingTop + room, rv.paddingRight + room, rv.paddingBottom + room)
+    }
+
+    fun animate(v: View, focused: Boolean, scale: Float) {
+        val d = v.resources.displayMetrics.density
+        val size = maxOf(v.width, v.height).coerceAtLeast(1)
+        // Wide rows only grow a little (a 1.02 zoom on a full-width row would be ~10 dp past each side).
+        val s = if (focused) minOf(scale, 1f + 2f * GROW_DP * d / size) else 1f
+        v.animate().scaleX(s).scaleY(s).translationZ(if (focused) 8f * d else 0f).setDuration(120).start()
     }
 }
 
@@ -175,15 +213,7 @@ class SimpleAdapter<T>(
      */
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         recycler = recyclerView
-        if (!interactive || recyclerView.getTag(R.id.focus_room) != null) return
-        recyclerView.setTag(R.id.focus_room, true)
-        val room = (recyclerView.resources.displayMetrics.density * (if (focusScale >= 1.05f) 9 else 6)).toInt()
-        recyclerView.clipToPadding = false
-        recyclerView.clipChildren = false
-        recyclerView.setPadding(
-            recyclerView.paddingLeft + room, recyclerView.paddingTop + room,
-            recyclerView.paddingRight + room, recyclerView.paddingBottom + room,
-        )
+        if (interactive) FocusZoom.prepare(recyclerView)
     }
 
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
@@ -204,9 +234,7 @@ class SimpleAdapter<T>(
         }
         vh.itemView.outlineProvider = null // raise on focus without a shadow
         vh.itemView.setOnFocusChangeListener { v, hasFocus ->
-            v.animate().scaleX(if (hasFocus) focusScale else 1f).scaleY(if (hasFocus) focusScale else 1f)
-                .translationZ(if (hasFocus) 8f * v.resources.displayMetrics.density else 0f)
-                .setDuration(120).start()
+            FocusZoom.animate(v, hasFocus, focusScale)
             val p = vh.bindingAdapterPosition
             if (hasFocus && p != RecyclerView.NO_POSITION && p < items.size) onFocus?.invoke(items[p], p)
         }

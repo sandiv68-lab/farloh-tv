@@ -74,9 +74,8 @@ class SettingsActivity : BaseActivity() {
                     val p = holder.bindingAdapterPosition
                     (rows.getOrNull(p) as? Row.Item)?.action?.invoke()
                 }
-                v.setOnFocusChangeListener { view, f ->
-                    view.animate().scaleX(if (f) 1.015f else 1f).scaleY(if (f) 1.015f else 1f).setDuration(110).start()
-                }
+                v.outlineProvider = null
+                v.setOnFocusChangeListener { view, f -> FocusZoom.animate(view, f, 1.015f) }
             }
             return holder
         }
@@ -110,6 +109,7 @@ class SettingsActivity : BaseActivity() {
         // Keep rows readable on very wide TV screens.
         if (screenWidthDp > 900) list.layoutParams = list.layoutParams.apply { width = dp(860) }
         list.itemAnimator = null
+        FocusZoom.prepare(list)
         tileAdapter.onClick = { h, _ -> openSection(h.key) }
         groups = buildGroups()
         val start = intent.getStringExtra(EXTRA_OPEN)
@@ -194,9 +194,11 @@ class SettingsActivity : BaseActivity() {
         }
         r += Row.Item("Subtitle language", label(LANGUAGES, store.subtitleLanguage)
             .ifEmpty { store.subtitleLanguage.uppercase() }, "Used when Subtitles is On") { chooseLanguage() }
+        val systemPip = Build.VERSION.SDK_INT >= 26 &&
+            packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)
         r += Row.Item("Picture-in-picture", onOff(store.pipEnabled),
-            if (Build.VERSION.SDK_INT >= 26) "Keep watching in a small window when you leave the player"
-            else "Needs Android 8 or newer") {
+            if (systemPip) "Keep watching in a small window when you leave the player"
+            else "This device has no Android picture-in-picture, so Farloh TV uses its own mini player while you browse the app") {
             store.pipEnabled = !store.pipEnabled; refresh()
         }
         r += Row.Item("Recently added limit", limitLabel(store.recentLimit), "Size of the \"Recently added\" group in Movies and TV Shows") {

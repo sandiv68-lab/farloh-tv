@@ -46,6 +46,10 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import android.content.Context
+import androidx.media3.exoplayer.audio.AudioCapabilities
+import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.ExoPlayer
@@ -181,7 +185,7 @@ class PlayerActivity : BaseActivity() {
                 when {
                     locked -> showUnlock()
                     channelPanel.visibility == View.VISIBLE -> hidePanel()
-                    store.pipOnBack && store.pipEnabled && player?.isPlaying == true && enterPip() -> Unit
+                    store.pipOnBack && store.pipEnabled && player?.isPlaying == true && (enterPip() || goMini()) -> Unit
                     else -> finish()
                 }
             }
@@ -277,6 +281,7 @@ class PlayerActivity : BaseActivity() {
         exo.trackSelectionParameters = subtitlePreferences(exo)
         exo.addListener(listener)
         exo.playWhenReady = true
+        if (speed != 1f) exo.setPlaybackSpeed(speed)
         playerView.player = queuePlayer(exo)
         player = exo
     }
@@ -297,13 +302,25 @@ class PlayerActivity : BaseActivity() {
                 else -> all
             }
         }
-        return DefaultRenderersFactory(this)
+        val pcm = pcmOnly
+        return object : DefaultRenderersFactory(this) {
+            override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink? {
+                if (!pcm) return super.buildAudioSink(context, enableFloatOutput, enableAudioTrackPlaybackParams)
+                @Suppress("DEPRECATION")
+                return DefaultAudioSink.Builder(context)
+                    .setAudioCapabilities(AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES) // stereo/PCM only: no passthrough
+                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .build()
+            }
+        }
             .setMediaCodecSelector(selector)
             .setEnableDecoderFallback(mode != "hw")
             .setExtensionRendererMode(
-                when (mode) {
-                    "hw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
-                    "sw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+                when {
+                    pcm && mode == "hw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON // FFmpeg decodes the surround sound
+                    mode == "hw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
+                    mode == "sw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
                     else -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
                 }
             )
@@ -365,6 +382,60 @@ class PlayerActivity : BaseActivity() {
         } catch (e: Exception) {
             false
         }
+    }
+
+    /**
+     * TVs without Android's picture-in-picture: hand the playing video to Farloh TV's own mini player,
+     * which keeps it in a corner of the app while you browse.
+     */
+    private fun goMini(): Boolean {
+        val exo = player ?: return false
+        if (!store.pipEnabled) return false
+        savePosition()
+        exo.removeListener(listener)
+        playerView.player = null
+        handler.removeCallbacksAndMessages(null)
+        player = null // so onStop doesn't release it
+        MiniPlayer.adopt(this, exo, items, index, PlayQueue.categoryName, isLive)
+        finish()
+        return true
+    }
+
+    // ---------------- Playback speed ----------------
+
+    /** Chosen speed for this session (kept when the player is rebuilt or the next episode starts). */
+    private var speed = 1f
+    /**
+     * Surround sound (AC3 / E-AC3 / DTS) sent straight to the TV or amplifier ("passthrough") can't be sped up.
+     * When a different speed is chosen, the player is rebuilt to decode the sound itself.
+     */
+    private var pcmOnly = false
+
+    private fun setSpeed(s: Float) {
+        val exo = player ?: return
+        speed = s
+        val mime = exo.audioFormat?.sampleMimeType
+        val bitstream = mime in setOf(MimeTypes.AUDIO_AC3, MimeTypes.AUDIO_E_AC3, MimeTypes.AUDIO_E_AC3_JOC,
+            MimeTypes.AUDIO_DTS, MimeTypes.AUDIO_DTS_HD, MimeTypes.AUDIO_DTS_EXPRESS, MimeTypes.AUDIO_TRUEHD, MimeTypes.AUDIO_AC4)
+        if (s != 1f && bitstream && !pcmOnly) { rebuildForSpeed(); return }
+        exo.setPlaybackSpeed(s)
+        // If the sound output refused the new speed, decode the sound in the app and try again.
+        handler.postDelayed({
+            val p = player ?: return@postDelayed
+            if (s != 1f && !pcmOnly && kotlin.math.abs(p.playbackParameters.speed - s) > 0.01f) rebuildForSpeed()
+            else showGestureInfo("Speed ${s}x")
+        }, 800)
+    }
+
+    private fun rebuildForSpeed() {
+        pcmOnly = true
+        savePosition()
+        player?.removeListener(listener)
+        player?.release()
+        player = null
+        initializePlayer()
+        playCurrent(resume = true)
+        showGestureInfo("Speed ${speed}x")
     }
 
     /** Android 12+: let the system slide into picture-in-picture smoothly when going home. */
@@ -826,16 +897,10 @@ class PlayerActivity : BaseActivity() {
         if (zoom > 1.01f) opts += "Reset zoom (${(zoom * 100).roundToInt()}%)" to { zoom = 1f; applyZoom() }
         if (!isLive && exo != null) opts += "Playback speed: ${exo.playbackParameters.speed}x" to {
             val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
-            Dialogs.choose(this, "Playback speed", speeds.map { "${it}x" }, speeds, exo.playbackParameters.speed) {
-                player?.setPlaybackSpeed(it)
-            }
+            Dialogs.choose(this, "Playback speed", speeds.map { "${it}x" }, speeds, exo.playbackParameters.speed) { setSpeed(it) }
         }
         opts += "Audio track" to { trackDialog(C.TRACK_TYPE_AUDIO, "Audio") }
         opts += "Subtitles" to { if (isLive) trackDialog(C.TRACK_TYPE_TEXT, "Subtitles") else subtitleMenu() }
-        if (!isLive && items.size > 1) {
-            if (index + 1 < items.size) opts += "Next: ${items[index + 1].title}" to { goToItem(index + 1) }
-            if (index > 0) opts += "Previous: ${items[index - 1].title}" to { goToItem(index - 1) }
-        }
         opts += "Sleep timer: ${if (sleepMinutes > 0) "$sleepMinutes min" else "Off"}" to {
             val mins = listOf(0, 15, 30, 45, 60, 90, 120)
             Dialogs.choose(this, "Sleep timer", mins.map { if (it == 0) "Off" else "$it minutes" }, mins, sleepMinutes) { setSleepTimer(it) }
@@ -845,7 +910,10 @@ class PlayerActivity : BaseActivity() {
             store.playerGestures = !store.playerGestures
             toast(if (store.playerGestures) "Gestures on" else "Gestures off")
         }
-        if (pipSupported() && store.pipEnabled) opts += "Picture-in-picture" to { enterPip(); Unit }
+        if (store.pipEnabled) {
+            if (pipSupported()) opts += "Picture-in-picture" to { if (!enterPip()) goMini(); Unit }
+            else opts += "Mini player (keep watching while you browse)" to { goMini(); Unit }
+        }
         AlertDialog.Builder(this)
             .setTitle("Settings")
             .setItems(opts.map { it.first }.toTypedArray()) { _, which -> opts[which].second() }
@@ -1101,8 +1169,8 @@ class PlayerActivity : BaseActivity() {
         when (code) {
             KeyEvent.KEYCODE_DPAD_UP -> { if (event.repeatCount == 0) switchTo(index + 1); return true }
             KeyEvent.KEYCODE_DPAD_DOWN -> { if (event.repeatCount == 0) switchTo(index - 1); return true }
-            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
             KeyEvent.KEYCODE_DPAD_LEFT -> { showPanel(); return true }
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
             KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_INFO, KeyEvent.KEYCODE_MENU,
             KeyEvent.KEYCODE_GUIDE -> { showInfo(focusButtons = true); return true }
             KeyEvent.KEYCODE_BACK -> if (infoBar.visibility == View.VISIBLE) { hideInfo(); return true }
