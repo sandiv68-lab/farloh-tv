@@ -119,7 +119,7 @@ class DownloadsActivity : BaseActivity() {
         val opts = ArrayList<Pair<String, () -> Unit>>()
         if (done) {
             opts += "Play" to { open(e) }
-            opts += "Play in MX Player / VLC" to {
+            opts += "Open in external" to {
                 Downloads.playable(this, e)?.let { Launcher.play(this, listOf(it), 0, external = true) }
                 Unit
             }

@@ -75,7 +75,7 @@ import java.io.File
 /**
  * Built-in player (AndroidX Media3 / ExoPlayer, open source).
  * Live TV: remote Up/Down (or CH+/CH-) switches channels, OK/Left opens the channel list,
- * Right/Info/Menu shows the info bar with EPG, audio/subtitle tracks and "open in MX/VLC".
+ * Right/Info/Menu shows the info bar with EPG, audio/subtitle tracks and "Open in external".
  * Movies & episodes: standard controls, resume position, auto-plays the next episode.
  */
 @OptIn(UnstableApi::class)
@@ -158,7 +158,8 @@ class PlayerActivity : BaseActivity() {
         playerView = findViewById(R.id.playerView)
         tapLayer = findViewById(R.id.tapLayer)
         vodTop = findViewById(R.id.vodTop)
-        vodTitle = findViewById(R.id.vodTitle)
+        // Movies & episodes: the title sits in the bottom panel of the controls (like Live TV).
+        vodTitle = playerView.findViewById(R.id.vodPanelTitle) ?: findViewById(R.id.vodTitle)
         infoBar = findViewById(R.id.infoBar)
         chLogo = findViewById(R.id.chLogo)
         chName = findViewById(R.id.chName)
@@ -195,7 +196,7 @@ class PlayerActivity : BaseActivity() {
         playerView.setShowPreviousButton(true)
         playerView.controllerShowTimeoutMs = 6000
         playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
-            vodTop.visibility = if (!isLive && visibility == View.VISIBLE) View.VISIBLE else View.GONE
+            vodTop.visibility = View.GONE
         })
         // The bottom bar, in both places it appears.
         findViewById<View>(R.id.liveActions)?.let { actionRows += it }
@@ -575,7 +576,7 @@ class PlayerActivity : BaseActivity() {
 
     private fun scheduleReconnect(reason: String) {
         if (retries >= 5) {
-            showStatus("This channel isn't responding ($reason).\n\nTry another channel, switch the Live TV stream format in Settings, or open it in MX Player / VLC.")
+            showStatus("This channel isn't responding ($reason).\n\nTry another channel, switch the Live TV stream format in Settings, or use Open in external.")
             return
         }
         retries++
@@ -614,8 +615,7 @@ class PlayerActivity : BaseActivity() {
                     scheduleReconnect(error.errorCodeName)
                 }
             } else {
-                showStatus("Can't play this video (${error.errorCodeName}).\n\nPress MX / VLC to try an external player.")
-                vodTop.visibility = View.VISIBLE
+                showStatus("Can't play this video (${error.errorCodeName}).\n\nTry Open in external.")
                 playerView.showController()
             }
         }
@@ -851,15 +851,21 @@ class PlayerActivity : BaseActivity() {
         contentFrame()?.apply { scaleX = zoom; scaleY = zoom }
     }
 
-    /** Settings button: everything that isn't on the bar itself. */
+    /** Settings button: the bar's options (by name) plus the extras. */
     private fun videoMenu() {
+        val exo = player
         val opts = ArrayList<Pair<String, () -> Unit>>()
-        opts += "Subtitles…" to { if (isLive) trackDialog(C.TRACK_TYPE_TEXT, "Subtitles") else subtitleMenu() }
+        if (!isLive && exo != null) opts += "Playback speed: ${speedLabel(exo.playbackParameters.speed)}" to { chooseSpeed() }
+        opts += "Audio track" to { trackDialog(C.TRACK_TYPE_AUDIO, "Audio track") }
+        opts += "Audio sync: ${if (store.audioDelayMs == 0) "0 ms" else "%+d ms".format(store.audioDelayMs)}" to { audioSyncDialog() }
+        opts += "Subtitles" to { if (isLive) trackDialog(C.TRACK_TYPE_TEXT, "Subtitles") else subtitleMenu() }
+        opts += "Screen size: ${SettingsActivity.RESIZES.firstOrNull { it.first == store.videoResize }?.second ?: "Fit"}" to { chooseScreenSize() }
+        if (zoom > 1.01f) opts += "Reset zoom (${(zoom * 100).roundToInt()}%)" to { zoom = 1f; applyZoom() }
+        opts += "Multiview" to { startMultiview() }
         opts += "Sleep timer: ${if (sleepMinutes > 0) "$sleepMinutes min" else "Off"}" to {
             val mins = listOf(0, 15, 30, 45, 60, 90, 120)
             Dialogs.choose(this, "Sleep timer", mins.map { if (it == 0) "Off" else "$it minutes" }, mins, sleepMinutes) { setSleepTimer(it) }
         }
-        if (zoom > 1.01f) opts += "Reset zoom (${(zoom * 100).roundToInt()}%)" to { zoom = 1f; applyZoom() }
         if (pipSupported()) opts += "Picture-in-picture" to { enterPip(explain = true); Unit }
         if (!tvMode) opts += "Lock screen (ignore touches)" to { setLocked(true) }
         if (!tvMode) opts += "Touch gestures: ${if (store.playerGestures) "On" else "Off"}" to {
@@ -909,10 +915,11 @@ class PlayerActivity : BaseActivity() {
         val accent = androidx.core.content.ContextCompat.getColor(this, R.color.accent)
         val plain = androidx.core.content.ContextCompat.getColor(this, R.color.text)
         for (row in actionRows) {
-            row.findViewById<View>(R.id.actChannels)?.apply {
+            row.findViewById<TextView>(R.id.actChannels)?.apply {
                 // Live TV: channel list. TV shows: episode list. Movies: nothing to list.
                 visibility = if (isLive || (p.kind == Kind.EPISODE && items.size > 1)) View.VISIBLE else View.GONE
-                contentDescription = if (isLive) "Channels" else "Episodes"
+                text = if (isLive) "Channels" else "Episodes"
+                contentDescription = text
             }
             row.findViewById<TextView>(R.id.actSpeed)?.apply {
                 visibility = if (isLive) View.GONE else View.VISIBLE // live TV always plays at normal speed
@@ -928,6 +935,20 @@ class PlayerActivity : BaseActivity() {
                 }
             }
             row.findViewById<ImageView>(R.id.actSync)?.setColorFilter(if (store.audioDelayMs != 0) accent else plain)
+            spreadGaps(row)
+        }
+    }
+
+    /** Equal gaps across the full width: a gap shows only between two visible buttons. */
+    private fun spreadGaps(row: View) {
+        val r = row.findViewById<android.view.ViewGroup>(R.id.actRow) ?: return
+        var seenButton = false
+        for (i in 0 until r.childCount) {
+            val v = r.getChildAt(i)
+            if (v.tag == "gap") {
+                val next = (i + 1 until r.childCount).map { r.getChildAt(it) }.firstOrNull { it.tag != "gap" }
+                v.visibility = if (seenButton && next?.visibility == View.VISIBLE) View.VISIBLE else View.GONE
+            } else if (v.visibility == View.VISIBLE) seenButton = true
         }
     }
 

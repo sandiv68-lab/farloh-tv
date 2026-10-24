@@ -428,7 +428,7 @@ class BrowseActivity : BaseActivity() {
         val isFav = favKey(ch) in favs
         val options = arrayOf(
             "Play",
-            "Play in MX Player / VLC",
+            "Open in external",
             if (isFav) "Remove from Favourites" else "Add to Favourites",
             "TV Guide",
         )

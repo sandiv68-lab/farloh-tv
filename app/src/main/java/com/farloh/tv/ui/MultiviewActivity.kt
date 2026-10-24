@@ -33,7 +33,7 @@ import com.farloh.tv.player.PlayerFactory
 import kotlin.math.abs
 
 /**
- * Multiview: 2–4 videos at once in one of six layouts (see [MvLayouts]). Every window is 16:9 and plays a
+ * Multiview: 2–4 videos at once in one of four layouts (see [MvLayouts]). Every window is 16:9 and plays a
  * channel, movie or episode from any playlist. Only the chosen window (orange outline) has sound.
  *
  * TV remote: arrows = choose a window (the sound follows) • OK = options for that window • Menu = layouts •
@@ -48,7 +48,7 @@ class MultiviewActivity : BaseActivity() {
         private var startIndex = 0
         private var startList = ""
         private var startPosition = 0L
-        private var startLayout = 4
+        private var startLayout = 3
 
         /** Opens Multiview with what's playing now in the main window. */
         fun start(activity: Activity, layout: Int, items: List<Playable>, index: Int, listName: String, positionMs: Long) {
@@ -84,7 +84,7 @@ class MultiviewActivity : BaseActivity() {
     private lateinit var hint: TextView
     private val handler = Handler(Looper.getMainLooper())
     private val slots = ArrayList<Slot>()
-    private var layout = 4
+    private var layout = 3
     private var selected = 0
     /** The window whose sound is heard (stays on the last window that has something playing). */
     private var soundSlot = 0

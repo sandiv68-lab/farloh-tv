@@ -298,8 +298,10 @@ class Store private constructor(context: Context) {
     // ---- Player ----
     /** Audio sync: + = sound later, − = sound earlier, in ms. Kept for all videos (e.g. a soundbar's delay). */
     var audioDelayMs: Int by IntPref("audio_delay_ms", 0)
-    /** Last Multiview layout used (0–5). */
-    var multiviewLayout: Int by IntPref("multiview_layout", 4)
+    /** Last Multiview layout used (0–3; default 2 × 2 grid). */
+    var multiviewLayout: Int
+        get() = prefs.getInt("multiview_layout", 3).coerceIn(0, 3)
+        set(value) = prefs.edit().putInt("multiview_layout", value).apply()
 
     // ---- Search history (all playlists) ----
     /** How many recent searches are kept: 5 (default), 10 or 20. */

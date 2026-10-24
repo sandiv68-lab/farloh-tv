@@ -219,8 +219,8 @@ class SettingsActivity : BaseActivity() {
             Dialogs.choose(this, "Live TV stream format", listOf("MPEG-TS (.ts) – recommended", "HLS (.m3u8)"),
                 listOf("ts", "m3u8"), store.liveFormat) { store.liveFormat = it; refresh() }
         }
-        r += Row.Item("Default player", if (store.externalByDefault) "External (MX / VLC)" else "Built-in") {
-            Dialogs.choose(this, "Default player", listOf("Built-in player", "External (MX Player / VLC)"),
+        r += Row.Item("Default player", if (store.externalByDefault) "External" else "Built-in") {
+            Dialogs.choose(this, "Default player", listOf("Built-in player", "External player"),
                 listOf(false, true), store.externalByDefault) { store.externalByDefault = it; refresh() }
         }
 

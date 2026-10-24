@@ -91,7 +91,7 @@ class SeriesDetailActivity : BaseActivity() {
             AlertDialog.Builder(this)
                 .setTitle(episodeTitle(ep))
                 .setItems(arrayOf(
-                    "Play", "Play from start", "Play in MX Player / VLC",
+                    "Play", "Play from start", "Open in external",
                     if (downloaded) "Open Downloads" else "Download episode",
                     "Download all of ${seasonLabel(currentSeason)}",
                 )) { _, which ->

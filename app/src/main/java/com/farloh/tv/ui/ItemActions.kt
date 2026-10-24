@@ -58,13 +58,13 @@ object ItemOptions {
         when (item) {
             is LiveChannel -> {
                 opts += "Play" to { playLive?.invoke(false); Unit }
-                opts += "Open in external player (MX / VLC)" to { playLive?.invoke(true); Unit }
+                opts += "Open in external" to { playLive?.invoke(true); Unit }
             }
             is Movie -> {
                 val p = Playable(Kind.MOVIE, item.id, item.name, account.movieUrl(item.id, item.ext), item.image,
                     searchTitle = item.name, ext = item.ext, playlistId = item.playlistId)
                 opts += "Play" to { Launcher.play(activity, listOf(p), 0, external = false) }
-                opts += "Open in external player (MX / VLC)" to { Launcher.play(activity, listOf(p), 0, external = true) }
+                opts += "Open in external" to { Launcher.play(activity, listOf(p), 0, external = true) }
                 opts += "Details" to { openItemDetails(activity, item) }
                 if (activity is BaseActivity && Downloads.find(activity, p.resumeKey) == null) opts += "Download" to {
                     DownloadPrompt.start(activity, listOf(p), item.name)

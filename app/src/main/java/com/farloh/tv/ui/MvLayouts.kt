@@ -17,7 +17,7 @@ import com.farloh.tv.R
 import kotlin.math.roundToInt
 
 /**
- * The six Multiview layouts, in 1920 × 1080 reference coordinates (top-left corner, width, height).
+ * The four Multiview layouts, in 1920 × 1080 reference coordinates (top-left corner, width, height).
  * Every window is exactly 16:9; on other screens everything is scaled by the same factor inside the
  * largest 16:9 area that fits, so the windows stay 16:9.
  */
@@ -31,10 +31,8 @@ object MvLayouts {
     val ALL: List<Layout> = listOf(
         Layout("Main + small", listOf(Win(0, 0, 1920, 1080), Win(1496, 824, 384, 216))),
         Layout("2 side by side", listOf(Win(0, 270, 960, 540), Win(960, 270, 960, 540))),
-        Layout("3 in a row", listOf(Win(0, 360, 640, 360), Win(640, 360, 640, 360), Win(1280, 360, 640, 360))),
         Layout("1 large + 2", listOf(Win(0, 180, 1280, 720), Win(1280, 180, 640, 360), Win(1280, 540, 640, 360))),
         Layout("2 × 2 grid", listOf(Win(0, 0, 960, 540), Win(960, 0, 960, 540), Win(0, 540, 960, 540), Win(960, 540, 960, 540))),
-        Layout("Main + 2 small", listOf(Win(0, 0, 1920, 1080), Win(1496, 588, 384, 216), Win(1496, 824, 384, 216))),
     )
 
     /** Most windows any layout has. */
@@ -64,11 +62,11 @@ object MvLayouts {
         }
     }
 
-    /** The layout chooser: six thumbnails (black with white outlines). */
+    /** The layout chooser: four thumbnails (black with white outlines), 2 × 2. */
     fun pick(activity: BaseActivity, current: Int, onPick: (Int) -> Unit) {
         val d = activity.resources.displayMetrics.density
         val grid = GridLayout(activity).apply {
-            columnCount = if (activity.screenWidthDp < 560) 2 else 3
+            columnCount = 2
             setPadding((12 * d).toInt(), (8 * d).toInt(), (12 * d).toInt(), (8 * d).toInt())
         }
         lateinit var dialog: AlertDialog
