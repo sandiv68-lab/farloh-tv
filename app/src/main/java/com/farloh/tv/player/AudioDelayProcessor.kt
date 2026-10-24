@@ -27,7 +27,7 @@ class AudioDelayProcessor : BaseAudioProcessor() {
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
         val pcm = inputAudioFormat.encoding == C.ENCODING_PCM_16BIT || inputAudioFormat.encoding == C.ENCODING_PCM_FLOAT ||
             inputAudioFormat.encoding == C.ENCODING_PCM_24BIT || inputAudioFormat.encoding == C.ENCODING_PCM_32BIT
-        if (!pcm) throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
+        if (!pcm) return AudioProcessor.AudioFormat.NOT_SET // unusual format: step aside rather than stop playback
         frameSize = inputAudioFormat.bytesPerFrame
         sampleRate = inputAudioFormat.sampleRate
         return inputAudioFormat
