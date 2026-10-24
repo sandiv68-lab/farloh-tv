@@ -7,7 +7,6 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.view.Gravity
 import android.view.View
-import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -62,16 +61,23 @@ object MvLayouts {
         }
     }
 
-    /** The layout chooser: four thumbnails (black with white outlines), 2 × 2. */
+    /** The layout chooser: four thumbnails (black with white outlines), 2 × 2, filling the whole box. */
     fun pick(activity: BaseActivity, current: Int, onPick: (Int) -> Unit) {
         val d = activity.resources.displayMetrics.density
-        val grid = GridLayout(activity).apply {
-            columnCount = 2
-            setPadding((12 * d).toInt(), (8 * d).toInt(), (12 * d).toInt(), (8 * d).toInt())
+        val columns = 2
+        val grid = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((16 * d).toInt(), (8 * d).toInt(), (16 * d).toInt(), (4 * d).toInt())
         }
         lateinit var dialog: AlertDialog
-        val cells = ALL.mapIndexed { i, layout ->
-            LinearLayout(activity).apply {
+        val cells = ArrayList<View>()
+        var row: LinearLayout? = null
+        ALL.forEachIndexed { i, layout ->
+            if (i % columns == 0) {
+                row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
+                grid.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            }
+            val cell = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_HORIZONTAL
                 setBackgroundResource(R.drawable.focus_bg)
@@ -80,19 +86,21 @@ object MvLayouts {
                 isSelected = i == current
                 val p = (8 * d).toInt()
                 setPadding(p, p, p, p)
-                addView(ThumbView(activity, i), LinearLayout.LayoutParams((152 * d).toInt(), (152 * d * 9 / 16).toInt()))
+                // The thumbnail takes the cell's full width and stays 16:9.
+                addView(ThumbView(activity, i), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
                 addView(TextView(activity).apply {
                     text = layout.name
-                    textSize = 13f
+                    textSize = 14f
                     gravity = Gravity.CENTER
                     setTextColor(ContextCompat.getColor(activity, R.color.text))
                     setPadding(0, (6 * d).toInt(), 0, 0)
                 })
                 setOnClickListener { dialog.dismiss(); onPick(i) }
-                grid.addView(this, GridLayout.LayoutParams().apply {
-                    val m = (6 * d).toInt(); setMargins(m, m, m, m)
-                })
             }
+            cells += cell
+            row!!.addView(cell, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                val m = (6 * d).toInt(); setMargins(m, m, m, m)
+            })
         }
         dialog = AlertDialog.Builder(activity)
             .setTitle("Multiview layout")
@@ -101,10 +109,20 @@ object MvLayouts {
             .create()
         dialog.setOnShowListener { cells.getOrNull(current.coerceIn(0, ALL.size - 1))?.requestFocus() }
         dialog.show()
+        // A roomier box: about 70% of the screen width on TVs, almost full width on phones.
+        val metrics = activity.resources.displayMetrics
+        val share = if (activity.screenWidthDp >= 720) 0.70f else 0.94f
+        dialog.window?.setLayout((metrics.widthPixels * share).toInt(), android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
     }
 
     /** Preview of a layout: black canvas, white window outlines, window numbers. */
     class ThumbView(ctx: Context, private val layout: Int) : View(ctx) {
+        /** Always 16:9, whatever width it is given. */
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val w = MeasureSpec.getSize(widthMeasureSpec)
+            setMeasuredDimension(w, w * 9 / 16)
+        }
+
         private val d = ctx.resources.displayMetrics.density
         private val fill = Paint().apply { color = Color.BLACK; style = Paint.Style.FILL }
         private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 1.5f * d }
