@@ -20,9 +20,6 @@ import com.farloh.tv.data.Catalog
 import com.farloh.tv.data.OpenSubtitles
 import com.farloh.tv.data.Section
 import com.farloh.tv.data.Xtream
-import com.farloh.tv.net.AppDns
-import com.farloh.tv.net.AppProxy
-import com.farloh.tv.net.OpenVpn
 import com.farloh.tv.net.Net
 import kotlinx.coroutines.launch
 
@@ -48,9 +45,7 @@ class SettingsActivity : BaseActivity() {
         v.findViewById<TextView>(R.id.summary).text = h.summary
     }
     private val backup = BackupFlow(this)
-    private val vpn = VpnFlow(this) { if (::list.isInitialized) refresh() }
     private val permissions = AppPermissions(this) { if (::list.isInitialized) refresh() }
-    private val vpnListener: () -> Unit = { if (::list.isInitialized) refresh() }
     private var sizes: com.farloh.tv.data.StorageInfo.Sizes? = null
 
     private fun remeasure(doneMessage: String? = null) {
@@ -117,14 +112,7 @@ class SettingsActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
-        OpenVpn.listeners += vpnListener
-        OpenVpn.watch(this)
         if (::list.isInitialized) { refresh(); remeasure() }
-    }
-
-    override fun onPause() {
-        super.onPause()
-        OpenVpn.listeners -= vpnListener
     }
 
     private fun buildGroups(): List<Group> {
@@ -261,56 +249,6 @@ class SettingsActivity : BaseActivity() {
                 store.bufferSize = it; refresh()
             }
         }
-
-        r += Row.Header("Network", "network", R.drawable.ic_network,
-            "DNS: ${AppDns.describe(store)}" + (if (store.proxyType != "off") " • Proxy on" else "") +
-                if (OpenVpn.isConnected) " • VPN on" else "")
-        r += Row.Item("DNS", AppDns.describe(store),
-            "Which DNS Farloh TV uses to find your server. Encrypted presets can get around ISP DNS blocks") { chooseDns() }
-        if (store.dnsMode == "custom") r += Row.Item("Custom DNS address", store.dnsCustom.ifBlank { "Not set" },
-            "An IP like 8.8.8.8, or an https:// DNS-over-HTTPS address") { editCustomDns() }
-        r += Row.Item("Test DNS", "", "Looks up your server's address with the chosen DNS") { testDns() }
-        val profile = store.vpnProfile
-        r += Row.Item("VPN", when {
-                profile == null -> "Not set up"
-                OpenVpn.isConnected -> "Connected – ${profile.name}"
-                else -> OpenVpn.describe()
-            },
-            when {
-                profile == null -> "Use your VPN (ExpressVPN, NordVPN, Surfshark, …) with its OpenVPN files. Press to set up"
-                OpenVpn.isConnected || OpenVpn.isBusy -> "Press to disconnect"
-                else -> "Press to connect to ${profile.name}"
-            }) {
-            when {
-                profile == null -> vpn.addLocation()
-                OpenVpn.isConnected || OpenVpn.isBusy -> vpn.disconnect()
-                else -> vpn.connect()
-            }
-        }
-        r += Row.Item("VPN location", profile?.name ?: "None",
-            "${Fmt.count(store.vpnProfiles.size, "location", "locations")} saved. Add .ovpn files from your VPN provider") { vpn.chooseLocation() }
-        r += Row.Item("VPN login", store.vpnUser.ifBlank { "Not set" },
-            "The manual-setup username and password from your VPN provider") { vpn.editLogin() }
-        r += Row.Item("Connect VPN when the app opens", if (store.vpnAuto) "On" else "Off", null) {
-            store.vpnAuto = !store.vpnAuto; refresh()
-        }
-        r += Row.Item("How to set up the VPN", "", "Where to find the files and login for ExpressVPN, NordVPN and others") { vpn.showHelp() }
-        r += Row.Item("Proxy (alternative to VPN)", AppProxy.describe(store),
-            "SOCKS5 or HTTP proxy details from your VPN provider (e.g. NordVPN, Surfshark, PIA). Used for everything in the app") {
-            chooseProxy()
-        }
-        if (store.proxyType != "off") {
-            r += Row.Item("Proxy login", store.proxyUser.ifBlank { "None" }, "Username and password from your VPN provider (if needed)") {
-                Dialogs.input(this, "Proxy username (leave empty if none)", store.proxyUser) { u ->
-                    store.proxyUser = u.trim()
-                    if (u.isBlank()) { store.proxyPassword = ""; AppProxy.reset(); refresh() }
-                    else Dialogs.input(this, "Proxy password", password = true) { pw ->
-                        store.proxyPassword = pw; AppProxy.reset(); refresh()
-                    }
-                }
-            }
-        }
-        r += Row.Item("Check my internet address", "", "Shows where the app appears to come from (to check the VPN or proxy)") { testProxy() }
 
         r += Row.Header("Online subtitles", "subtitles", R.drawable.ic_subtitles,
             if (store.subsApiKey.isBlank()) "OpenSubtitles – not set up yet" else "OpenSubtitles – ${if (store.subsServer == "vip") "VIP server" else if (store.subsServer == "custom") "custom server" else "default server"}")
@@ -592,94 +530,6 @@ class SettingsActivity : BaseActivity() {
                     .setMessage(e.message ?: "Couldn't reach the subtitle server.")
                     .setPositiveButton("OK", null).show()
             }
-        }
-    }
-
-    // ---------------- Network ----------------
-
-    private fun chooseProxy() {
-        Dialogs.choose(this, "Proxy", listOf("Off", "SOCKS5 proxy", "HTTP proxy"), listOf("off", "socks", "http"), store.proxyType) { type ->
-            if (type == "off") { store.proxyType = "off"; AppProxy.reset(); refresh(); toast("Proxy off"); return@choose }
-            val current = if (store.proxyHost.isNotBlank()) "${store.proxyHost}:${store.proxyPort}" else ""
-            Dialogs.input(this, "Proxy server (host:port, e.g. nl123.nordvpn.com:1080)", current) { v ->
-                val text = v.trim().removePrefix("socks5://").removePrefix("socks://").removePrefix("http://").removePrefix("https://")
-                val host = text.substringBeforeLast(':').trim()
-                val port = text.substringAfterLast(':', "").trim().toIntOrNull()
-                if (host.isEmpty() || port == null || port !in 1..65535) {
-                    toast("Enter the server as host:port, for example nl123.nordvpn.com:1080", long = true); return@input
-                }
-                store.proxyHost = host; store.proxyPort = port; store.proxyType = type
-                AppProxy.reset(); refresh()
-                Dialogs.confirm(this, "Proxy login", "Does this proxy need a username and password? (VPN providers usually give you special \"service\" credentials for this.)", "Enter login") {
-                    Dialogs.input(this, "Proxy username", store.proxyUser) { u ->
-                        store.proxyUser = u.trim()
-                        Dialogs.input(this, "Proxy password", password = true) { pw ->
-                            store.proxyPassword = pw; AppProxy.reset(); refresh(); testProxy()
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private fun testProxy() {
-        toast("Testing…")
-        lifecycleScope.launch {
-            val started = System.currentTimeMillis()
-            val result = runCatching {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Net.getString("https://ipinfo.io/json") }
-            }
-            val ms = System.currentTimeMillis() - started
-            val msg = result.fold(
-                onSuccess = { body ->
-                    val o = runCatching { org.json.JSONObject(body) }.getOrNull()
-                    val ip = o?.optString("ip").orEmpty()
-                    val where = listOfNotNull(o?.optString("city")?.ifBlank { null }, o?.optString("country")?.ifBlank { null }).joinToString(", ")
-                    "VPN: ${if (OpenVpn.isConnected) "connected (${store.vpnProfile?.name})" else "off"}\nProxy: ${AppProxy.describe(store)}\n\nThe app appears to come from:\n$ip${if (where.isNotEmpty()) "  ($where)" else ""}\n\nAnswered in $ms ms ✓"
-                },
-                onFailure = { e -> "Using: ${AppProxy.describe(store)}\n\nCouldn't connect through the proxy:\n${Net.friendlyError(e)}\n\nCheck the server, port and login, or turn the proxy off." },
-            )
-            AlertDialog.Builder(this@SettingsActivity).setTitle("Internet address").setMessage(msg).setPositiveButton("OK", null).show()
-        }
-    }
-
-    private fun chooseDns() {
-        val labels = listOf("Device default") + AppDns.PRESETS.map { "${it.label} (encrypted)" } + "Custom…"
-        val values = listOf("system") + AppDns.PRESETS.map { it.key } + "custom"
-        Dialogs.choose(this, "DNS", labels, values, store.dnsMode) { mode ->
-            if (mode == "custom") editCustomDns()
-            else { store.dnsMode = mode; AppDns.reset(); refresh(); toast("DNS: ${AppDns.describe(store)}") }
-        }
-    }
-
-    private fun editCustomDns() {
-        Dialogs.input(this, "Custom DNS (e.g. 8.8.8.8 or https://…/dns-query)", store.dnsCustom) { v ->
-            val value = v.trim()
-            val ok = value.startsWith("https://", true) ||
-                Regex("^\\d{1,3}(\\.\\d{1,3}){3}(:\\d{1,5})?$").matches(value)
-            if (!ok) { toast("Enter an IP address like 8.8.8.8, or an https:// address", long = true); return@input }
-            store.dnsCustom = value
-            store.dnsMode = "custom"
-            AppDns.reset()
-            refresh()
-            testDns()
-        }
-    }
-
-    private fun testDns() {
-        val host = runCatching { android.net.Uri.parse(store.account?.server).host }.getOrNull() ?: "dns.google"
-        toast("Testing…")
-        lifecycleScope.launch {
-            val started = System.currentTimeMillis()
-            val result = runCatching {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { AppDns.test(host) }
-            }
-            val ms = System.currentTimeMillis() - started
-            val msg = result.fold(
-                onSuccess = { list -> "Using: ${AppDns.describe(store)}\n\n$host\n→ ${list.take(3).joinToString { it.hostAddress ?: "?" }}\n\nAnswered in $ms ms ✓" },
-                onFailure = { e -> "Using: ${AppDns.describe(store)}\n\nCouldn't look up $host:\n${e.message ?: e.javaClass.simpleName}\n\nThe app will fall back to the device's DNS if this keeps failing." },
-            )
-            AlertDialog.Builder(this@SettingsActivity).setTitle("DNS test").setMessage(msg).setPositiveButton("OK", null).show()
         }
     }
 

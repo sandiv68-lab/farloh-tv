@@ -256,7 +256,7 @@ class PlayerActivity : BaseActivity() {
     // ---------------- Player ----------------
 
     private fun initializePlayer() {
-        // Shared client: same DNS setting (Settings → Network), redirects and certificates as the rest of the app.
+        // Shared client: same redirects and certificates as the rest of the app.
         val http = OkHttpDataSource.Factory(Net.client.newBuilder().readTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build())
             .setUserAgent(Net.USER_AGENT)
         val extractors = DefaultExtractorsFactory().setTsExtractorFlags(

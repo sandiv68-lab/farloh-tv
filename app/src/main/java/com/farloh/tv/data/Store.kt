@@ -30,6 +30,7 @@ class Store private constructor(context: Context) {
 
     init {
         migrateSingleAccount()
+        removeNetworkSettings()
     }
 
     // =================== Playlists ===================
@@ -145,6 +146,14 @@ class Store private constructor(context: Context) {
     fun viewPlaylists(): List<Playlist> = combinedPlaylists().ifEmpty { listOfNotNull(activePlaylist) }
 
     /** Version 1.0 stored a single login; turn it into the first playlist. */
+    /** Versions 1.5.0–1.7.1 had Settings → Network (DNS, proxy, VPN); it was removed. Clear what it saved. */
+    private fun removeNetworkSettings() {
+        val old = prefs.all.keys.filter {
+            it.startsWith("dns_") || it.startsWith("proxy_") || it.startsWith("vpn_")
+        }
+        if (old.isNotEmpty()) prefs.edit().apply { old.forEach { remove(it) } }.apply()
+    }
+
     private fun migrateSingleAccount() {
         val old = prefs.getString("account", null) ?: return
         val json = Crypto.decrypt(old)
@@ -286,52 +295,6 @@ class Store private constructor(context: Context) {
     /** Maximum space for cached pictures (channel logos, posters), in MB. */
     var imageCacheMb: Int by IntPref("image_cache_mb", 150)
 
-    /** "system", a preset key from AppDns.PRESETS, or "custom". */
-    var dnsMode: String by StringPref("dns_mode", "system")
-    /** Custom DNS: an IP (e.g. 8.8.8.8) or an https:// DNS-over-HTTPS address. */
-    var dnsCustom: String by StringPref("dns_custom", "")
-
-    /** Proxy: "off", "socks" (SOCKS5) or "http". */
-    var proxyType: String by StringPref("proxy_type", "off")
-    var proxyHost: String by StringPref("proxy_host", "")
-    var proxyPort: Int by IntPref("proxy_port", 0)
-    var proxyUser: String by StringPref("proxy_user", "")
-    var proxyPassword: String
-        get() = prefs.getString("proxy_password", null)?.let { Crypto.decrypt(it) } ?: ""
-        set(value) = prefs.edit().apply {
-            if (value.isEmpty()) remove("proxy_password") else putString("proxy_password", Crypto.encrypt(value))
-        }.apply()
-
-    // ---- VPN (OpenVPN profiles, run by the "OpenVPN for Android" app) ----
-    class VpnProfile(val id: String, val name: String, val config: String)
-
-    /** Saved VPN locations (.ovpn files), stored encrypted. */
-    var vpnProfiles: List<VpnProfile>
-        get() {
-            val raw = prefs.getString("vpn_profiles", null)?.let { Crypto.decrypt(it) } ?: return emptyList()
-            return runCatching {
-                val a = JSONArray(raw)
-                (0 until a.length()).map { i ->
-                    val o = a.getJSONObject(i); VpnProfile(o.getString("id"), o.getString("name"), o.getString("config"))
-                }
-            }.getOrDefault(emptyList())
-        }
-        set(value) {
-            val a = JSONArray()
-            value.forEach { a.put(JSONObject().put("id", it.id).put("name", it.name).put("config", it.config)) }
-            prefs.edit().apply {
-                if (value.isEmpty()) remove("vpn_profiles") else putString("vpn_profiles", Crypto.encrypt(a.toString()))
-            }.apply()
-        }
-    var vpnActiveId: String by StringPref("vpn_active", "")
-    val vpnProfile: VpnProfile? get() = vpnProfiles.let { list -> list.firstOrNull { it.id == vpnActiveId } ?: list.firstOrNull() }
-    /** The VPN's "manual setup" username (not the account email for ExpressVPN / NordVPN). */
-    var vpnUser: String by StringPref("vpn_user", "")
-    var vpnPassword: String
-        get() = prefs.getString("vpn_password", null)?.let { Crypto.decrypt(it) } ?: ""
-        set(value) = prefs.edit().apply {
-            if (value.isEmpty()) remove("vpn_password") else putString("vpn_password", Crypto.encrypt(value))
-        }.apply()
     // ---- Search history (all playlists) ----
     /** How many recent searches are kept: 5 (default), 10 or 20. */
     var searchHistoryLimit: Int by IntPref("search_history_limit", 5)
@@ -357,8 +320,6 @@ class Store private constructor(context: Context) {
     /** The first-start "Allow notifications / files" question has been shown on this device. */
     var permissionsAsked: Boolean by BoolPref("permissions_asked", false)
 
-    /** Connect the VPN when Farloh TV opens. */
-    var vpnAuto: Boolean by BoolPref("vpn_auto", false)
 
     /** "landscape" (default) or "auto" (follow the phone's rotation). */
     var orientation: String by StringPref("orientation", "landscape")
@@ -500,7 +461,7 @@ class Store private constructor(context: Context) {
         private const val KEY_PLAYLISTS = "playlists"
         private const val KEY_ACTIVE = "active_playlist"
         /** Stored encrypted with this device's key; exported in plain text inside the (password-protected) backup. */
-        private val SECRET_KEYS = setOf(KEY_PLAYLISTS, "subs_password", "subs_api_key", "proxy_password", "vpn_profiles", "vpn_password")
+        private val SECRET_KEYS = setOf(KEY_PLAYLISTS, "subs_password", "subs_api_key")
         /** Per-device screen settings that a restore leaves as they are. */
         private val DEVICE_KEYS = setOf("device_mode", "ui_zoom", "text_zoom", "orientation", "permissions_asked")
 

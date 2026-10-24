@@ -64,14 +64,11 @@ object Net {
     }
 
     /**
-     * One shared HTTP client for the whole app. It uses [AppDns] (Settings → Network → DNS),
+     * One shared HTTP client for the whole app. It uses the device's own DNS and connection,
      * follows redirects (including http <-> https) and trusts the bundled root certificates.
      */
     val client: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .dns(AppDns)
-            .proxySelector(AppProxy)
-            .proxyAuthenticator(AppProxy.authenticator)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .followRedirects(true)

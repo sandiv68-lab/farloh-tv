@@ -73,7 +73,6 @@ android {
     buildFeatures {
         viewBinding = false
         buildConfig = true
-        aidl = true // remote control of "OpenVPN for Android" (VPN feature)
     }
 }
 
@@ -97,5 +96,4 @@ dependencies {
     implementation("io.coil-kt:coil:2.7.0")
     implementation("androidx.work:work-runtime-ktx:2.9.1") // background check for updates / messages
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.0")
 }

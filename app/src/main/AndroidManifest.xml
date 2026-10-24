@@ -28,11 +28,6 @@
             <data android:mimeType="video/*" />
         </intent>
         <package android:name="com.mxtech.videoplayer.ad" />
-        <!-- OpenVPN for Android: runs the VPN for Settings > Network > VPN -->
-        <package android:name="de.blinkt.openvpn" />
-        <intent>
-            <action android:name="de.blinkt.openvpn.api.IOpenVPNAPIService" />
-        </intent>
         <package android:name="com.mxtech.videoplayer.pro" />
         <package android:name="org.videolan.vlc" />
         <!-- File manager apps that can hand over a backup file (Android TV has no system picker). -->
@@ -94,7 +89,6 @@
                 <data android:scheme="file" />
                 <data android:mimeType="application/octet-stream" />
                 <data android:mimeType="text/plain" />
-                <data android:mimeType="application/x-openvpn-profile" />
             </intent-filter>
         </activity>
         <activity android:name=".ui.FileBrowserActivity" android:exported="false" android:screenOrientation="sensorLandscape" />

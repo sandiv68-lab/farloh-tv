@@ -16,8 +16,6 @@ class FarlohApp : Application(), ImageLoaderFactory {
         // Installs the bundled root certificates on old Android versions (5.x / 6.x)
         // that are missing the current Let's Encrypt / Google / DigiCert roots.
         Net.init(this)
-        com.farloh.tv.net.AppDns.init(this)
-        com.farloh.tv.net.AppProxy.init(this)
         com.farloh.tv.data.Notify.schedule(this)
         com.farloh.tv.data.Xtream.epgTtlMs = com.farloh.tv.data.Store.get(this).epgMinutes * 60_000L
         // An update was installed (or abandoned): the downloaded APK isn't needed any more.

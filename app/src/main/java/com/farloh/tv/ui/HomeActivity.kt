@@ -32,7 +32,6 @@ class HomeActivity : BaseActivity() {
     }
 
     private val tiles = HashMap<Section, Tile>()
-    private val vpn = VpnFlow(this)
     private val permissions = AppPermissions(this)
     private val busy = HashSet<Section>()
     private lateinit var playlistButton: Button
@@ -60,7 +59,6 @@ class HomeActivity : BaseActivity() {
 
         sizeTiles()
         if (savedInstanceState == null) permissions.askOnce()
-        if (store.vpnAuto && store.vpnProfile != null) com.farloh.tv.net.OpenVpn.autoConnect(this) { vpn.connect(quiet = true) }
 
         playlistButton = findViewById(R.id.playlist)
         playlistButton.setOnClickListener { showPlaylists() }
