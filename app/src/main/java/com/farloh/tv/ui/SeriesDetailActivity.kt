@@ -218,7 +218,7 @@ class SeriesDetailActivity : BaseActivity() {
     private fun remotePlayable(ep: Episode) = Playable(
         Kind.EPISODE, ep.id, episodeTitle(ep), account.episodeUrl(ep.id, ep.ext), ep.image ?: cover,
         subtitle = showName, searchTitle = showName, tmdbId = info?.tmdbId, year = info?.year?.ifBlank { null },
-        season = ep.season, episode = ep.num, ext = ep.ext, playlistId = pid,
+        season = ep.season, episode = ep.num, ext = ep.ext, playlistId = pid, seriesId = seriesId,
     )
 
     private fun downloadEpisodes(eps: List<Episode>) {

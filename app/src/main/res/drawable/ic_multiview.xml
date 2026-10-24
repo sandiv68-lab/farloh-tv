@@ -1,0 +1,6 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <!-- One large screen + two small ones (outlines) -->
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"
+        android:pathData="M2,5h12v14H2zM4,7v10h8V7zM15,5h7v6.5h-7zM16.8,6.8v2.9h3.4V6.8zM15,12.5h7V19h-7zM16.8,14.3v2.9h3.4v-2.9z" />
+</vector>

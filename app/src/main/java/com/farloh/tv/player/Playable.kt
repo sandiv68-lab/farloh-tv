@@ -28,6 +28,8 @@ data class Playable(
     val ext: String? = null,
     /** Playlist it belongs to (login, favourites, resume position); null = the one in use. */
     val playlistId: String? = null,
+    /** Episodes: the TV show they belong to (for the ★ button in the player). */
+    val seriesId: String? = null,
 ) {
     val resumeKey: String get() = "${kind.name}_$id"
 }

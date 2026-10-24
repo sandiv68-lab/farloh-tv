@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One Multiview window: always 16:9; the video keeps its own shape inside (black bars if needed). -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="wrap_content" android:layout_height="wrap_content"
+    android:background="#000000" android:clickable="true" android:focusable="false">
+    <androidx.media3.ui.PlayerView android:id="@+id/mvVideo" android:layout_width="match_parent"
+        android:layout_height="match_parent" android:focusable="false"
+        app:resize_mode="fit" app:shutter_background_color="#000000" app:surface_type="texture_view"
+        app:use_controller="false" />
+    <ProgressBar android:id="@+id/mvLoading" android:layout_width="36dp" android:layout_height="36dp"
+        android:layout_gravity="center" android:visibility="gone" />
+    <TextView android:id="@+id/mvMessage" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_gravity="center" android:gravity="center" android:padding="12dp"
+        android:textColor="@color/text2" android:textSize="14sp" />
+    <TextView android:id="@+id/mvLabel" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_gravity="top|start" android:layout_margin="6dp" android:background="#B3000000"
+        android:ellipsize="end" android:maxLines="1" android:paddingStart="8dp" android:paddingTop="3dp"
+        android:paddingEnd="8dp" android:paddingBottom="3dp" android:textColor="@color/text" android:textSize="13sp"
+        android:visibility="gone" />
+    <View android:id="@+id/mvBorder" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:background="@drawable/mv_border" />
+</FrameLayout>

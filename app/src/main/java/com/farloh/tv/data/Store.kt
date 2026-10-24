@@ -295,6 +295,12 @@ class Store private constructor(context: Context) {
     /** Maximum space for cached pictures (channel logos, posters), in MB. */
     var imageCacheMb: Int by IntPref("image_cache_mb", 150)
 
+    // ---- Player ----
+    /** Audio sync: + = sound later, − = sound earlier, in ms. Kept for all videos (e.g. a soundbar's delay). */
+    var audioDelayMs: Int by IntPref("audio_delay_ms", 0)
+    /** Last Multiview layout used (0–5). */
+    var multiviewLayout: Int by IntPref("multiview_layout", 4)
+
     // ---- Search history (all playlists) ----
     /** How many recent searches are kept: 5 (default), 10 or 20. */
     var searchHistoryLimit: Int by IntPref("search_history_limit", 5)

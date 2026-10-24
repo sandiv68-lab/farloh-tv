@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent" android:layout_height="match_parent" android:background="@android:color/black">
 
     <androidx.media3.ui.PlayerView android:id="@+id/playerView" android:layout_width="match_parent"
-        android:layout_height="match_parent" android:focusable="true" />
+        android:layout_height="match_parent" android:focusable="true"
+        app:controller_layout_id="@layout/player_controls" />
 
     <!-- Catches taps in live mode (the built-in controller is off for live TV). -->
     <View android:id="@+id/tapLayer" android:layout_width="match_parent" android:layout_height="match_parent"
@@ -17,9 +19,6 @@
         <TextView android:id="@+id/vodTitle" android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:ellipsize="end" android:maxLines="2" android:textColor="@color/text"
             android:textSize="20sp" android:textStyle="bold" />
-        <Button android:id="@+id/vodVideo" style="@style/Btn" android:layout_marginEnd="8dp" android:text="Settings" />
-        <ImageButton android:id="@+id/vodExternal" style="@style/IconBtnBox" android:src="@drawable/ic_external"
-            android:contentDescription="Open in MX Player / VLC" />
     </LinearLayout>
 
     <!-- Live TV info bar -->
@@ -49,17 +48,8 @@
             <TextView android:id="@+id/clock" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_marginStart="16dp" android:textColor="@color/text" android:textSize="20sp" />
         </LinearLayout>
-        <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="14dp" android:scrollbars="none">
-            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal">
-                <Button android:id="@+id/btnChannels" style="@style/Btn" android:text="☰  Channels" />
-                <Button android:id="@+id/btnVideo" style="@style/Btn" android:layout_marginStart="8dp" android:text="Settings" />
-                <ImageButton android:id="@+id/btnFav" style="@style/IconBtnBox" android:layout_marginStart="8dp"
-                    android:src="@drawable/ic_star_border" android:contentDescription="Favourite" />
-                <ImageButton android:id="@+id/btnExternal" style="@style/IconBtnBox" android:layout_marginStart="8dp"
-                    android:src="@drawable/ic_external" android:contentDescription="Open in MX Player / VLC" />
-            </LinearLayout>
-        </HorizontalScrollView>
+        <include android:id="@+id/liveActions" layout="@layout/player_actions" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:layout_marginTop="10dp" />
     </LinearLayout>
 
     <!-- Live TV channel list -->

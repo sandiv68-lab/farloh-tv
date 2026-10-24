@@ -62,7 +62,9 @@ import com.farloh.tv.data.OpenSubtitles
 import com.farloh.tv.data.Programme
 import com.farloh.tv.data.Xtream
 import com.farloh.tv.net.Net
+import com.farloh.tv.player.AudioDelayProcessor
 import com.farloh.tv.player.External
+import com.farloh.tv.player.PlayerFactory
 import com.farloh.tv.player.Kind
 import com.farloh.tv.player.PlayQueue
 import com.farloh.tv.player.Playable
@@ -102,8 +104,10 @@ class PlayerActivity : BaseActivity() {
     private lateinit var nowProgress: ProgressBar
     private lateinit var nextTitle: TextView
     private lateinit var clock: TextView
-    private lateinit var btnChannels: Button
-    private lateinit var btnFav: ImageView
+    /** The bottom bar: one in the Live TV info bar, one in the movie/episode controls. */
+    private val actionRows = ArrayList<View>()
+    /** Audio sync for the current player (Audio sync button). */
+    private var delay = AudioDelayProcessor()
     private lateinit var channelPanel: View
     private lateinit var panelTitle: TextView
     private lateinit var channelList: RecyclerView
@@ -162,8 +166,6 @@ class PlayerActivity : BaseActivity() {
         nowProgress = findViewById(R.id.nowProgress)
         nextTitle = findViewById(R.id.nextTitle)
         clock = findViewById(R.id.clock)
-        btnChannels = findViewById(R.id.btnChannels)
-        btnFav = findViewById(R.id.btnFav)
         channelPanel = findViewById(R.id.channelPanel)
         panelTitle = findViewById(R.id.panelTitle)
         channelList = findViewById(R.id.channelList)
@@ -171,8 +173,6 @@ class PlayerActivity : BaseActivity() {
         gestureInfo = findViewById(R.id.gestureInfo)
         unlockButton = findViewById(R.id.unlock)
         unlockButton.setOnClickListener { setLocked(false) }
-        findViewById<View>(R.id.vodVideo).setOnClickListener { videoMenu() }
-        findViewById<View>(R.id.btnVideo).setOnClickListener { videoMenu() }
         applyResize()
 
         // Back: close overlays first, then shrink to picture-in-picture (Settings → Back button) or close.
@@ -193,11 +193,20 @@ class PlayerActivity : BaseActivity() {
         playerView.findViewById<View>(androidx.media3.ui.R.id.exo_settings)?.visibility = View.GONE
         playerView.setShowNextButton(true)
         playerView.setShowPreviousButton(true)
-        playerView.controllerShowTimeoutMs = 4000
+        playerView.controllerShowTimeoutMs = 6000
         playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
             vodTop.visibility = if (!isLive && visibility == View.VISIBLE) View.VISIBLE else View.GONE
         })
-        findViewById<View>(R.id.vodExternal).setOnClickListener { openExternal() }
+        // The bottom bar, in both places it appears.
+        findViewById<View>(R.id.liveActions)?.let { actionRows += it }
+        playerView.findViewById<View>(R.id.vodActions)?.let { actionRows += it }
+        actionRows.forEach { bindActions(it) }
+
+        // Channel list (Live TV) / episode list (TV shows).
+        channelList.layoutManager = LinearLayoutManager(this)
+        channelList.itemAnimator = null
+        channelList.adapter = channelAdapter
+        channelAdapter.onClick = { _, pos -> hidePanel(); if (isLive) switchTo(pos) else goToItem(pos) }
 
         if (isLive) {
             playerView.useController = false
@@ -206,13 +215,6 @@ class PlayerActivity : BaseActivity() {
                 if (channelPanel.visibility == View.VISIBLE) hidePanel()
                 else if (infoBar.visibility == View.VISIBLE) hideInfo() else showInfo(focusButtons = false)
             }
-            channelList.layoutManager = LinearLayoutManager(this)
-            channelList.itemAnimator = null
-            channelList.adapter = channelAdapter
-            channelAdapter.onClick = { _, pos -> hidePanel(); switchTo(pos) }
-            btnChannels.setOnClickListener { showPanel() }
-            findViewById<View>(R.id.btnExternal).setOnClickListener { openExternal() }
-            btnFav.setOnClickListener { toggleFavorite() }
         } else {
             playerView.useController = true
             tapLayer.visibility = View.GONE
@@ -256,71 +258,14 @@ class PlayerActivity : BaseActivity() {
     // ---------------- Player ----------------
 
     private fun initializePlayer() {
-        // Shared client: same redirects and certificates as the rest of the app.
-        val http = OkHttpDataSource.Factory(Net.client.newBuilder().readTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build())
-            .setUserAgent(Net.USER_AGENT)
-        val extractors = DefaultExtractorsFactory().setTsExtractorFlags(
-            DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
-        )
-        val mediaSources = DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http), extractors)
-        val renderers = buildRenderers()
-        val audio = AudioAttributes.Builder()
-            .setUsage(C.USAGE_MEDIA)
-            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-            .build()
-        val exo = ExoPlayer.Builder(this, renderers)
-            .setMediaSourceFactory(mediaSources)
-            .setLoadControl(buildLoadControl())
-            .setAudioAttributes(audio, true)
-            .setHandleAudioBecomingNoisy(true)
-            .build()
+        delay = AudioDelayProcessor().apply { setDelayMs(store.audioDelayMs) }
+        val exo = PlayerFactory.build(this, delay)
         exo.trackSelectionParameters = subtitlePreferences(exo)
         exo.addListener(listener)
         exo.playWhenReady = true
         playerView.player = queuePlayer(exo)
         player = exo
-    }
-
-    /**
-     * Decoder modes (Settings → Player):
-     *  HW  – hardware decoders only.
-     *  HW+ – hardware first, falls back to software, plus FFmpeg audio (AC3/E-AC3/DTS/TrueHD) when the device can't.
-     *  SW  – software decoders first (Android's built-in software video decoders + FFmpeg audio).
-     */
-    private fun buildRenderers(): DefaultRenderersFactory {
-        val mode = store.decoderMode
-        val selector = MediaCodecSelector { mimeType, secure, tunneling ->
-            val all = MediaCodecUtil.getDecoderInfos(mimeType, secure, tunneling)
-            when (mode) {
-                "sw" -> all.sortedBy { if (it.softwareOnly) 0 else 1 }
-                "hw" -> all.filter { !it.softwareOnly }.ifEmpty { all }
-                else -> all
-            }
-        }
-        return DefaultRenderersFactory(this)
-            .setMediaCodecSelector(selector)
-            .setEnableDecoderFallback(mode != "hw")
-            .setExtensionRendererMode(
-                when (mode) {
-                    "hw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
-                    "sw" -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
-                    else -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
-                }
-            )
-    }
-
-    /** Buffer size (Settings → Player). Bigger = fewer stalls on shaky connections, slower to start. */
-    private fun buildLoadControl(): DefaultLoadControl {
-        val b = DefaultLoadControl.Builder()
-        when (store.bufferSize) {
-            "small" -> b.setBufferDurationsMs(5_000, 15_000, 1_000, 2_000)
-            "large" -> b.setBufferDurationsMs(30_000, 90_000, 2_500, 5_000)
-                .setTargetBufferBytes(64 * 1024 * 1024).setPrioritizeTimeOverSizeThresholds(true)
-            "xl" -> b.setBufferDurationsMs(60_000, 180_000, 2_500, 5_000)
-                .setTargetBufferBytes(100 * 1024 * 1024).setPrioritizeTimeOverSizeThresholds(true)
-            else -> b.setBufferDurationsMs(15_000, 50_000, 1_500, 3_000)
-        }
-        return b.build()
+        updateActions()
     }
 
     /** Subtitles (Settings → General): auto = only tracks the stream marks as default/forced. */
@@ -506,22 +451,7 @@ class PlayerActivity : BaseActivity() {
         if (player != null) playCurrent(resume = PlayQueue.resume)
     }
 
-    private fun mediaItem(p: Playable): MediaItem {
-        val b = MediaItem.Builder().setUri(p.url).setMediaId(p.id)
-        if (p.url.contains(".m3u8", ignoreCase = true)) b.setMimeType(MimeTypes.APPLICATION_M3U8)
-        // Subtitle previously downloaded from OpenSubtitles for this movie/episode.
-        val sub = subFile(p)
-        if (p.kind != Kind.LIVE && sub.exists() && sub.length() > 0) {
-            b.setSubtitleConfigurations(listOf(
-                MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(sub))
-                    .setMimeType(MimeTypes.APPLICATION_SUBRIP)
-                    .setLabel("Downloaded (OpenSubtitles)")
-                    .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
-                    .build()
-            ))
-        }
-        return b.build()
-    }
+    private fun mediaItem(p: Playable): MediaItem = PlayerFactory.mediaItem(p, subFile(p))
 
     // ---------------- Subtitles ----------------
 
@@ -633,6 +563,7 @@ class PlayerActivity : BaseActivity() {
             vodTitle.text = listOfNotNull(p.subtitle, p.title).joinToString(" — ")
             if (start > 0) toast("Resuming from ${Fmt.duration(start)}")
         }
+        updateActions()
     }
 
     private fun reconnect() {
@@ -663,6 +594,10 @@ class PlayerActivity : BaseActivity() {
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) = updatePipParams()
+
+        override fun onTracksChanged(tracks: androidx.media3.common.Tracks) = updateActions()
+
+        override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) = updateActions()
 
         override fun onVideoSizeChanged(videoSize: VideoSize) {
             // Re-apply a forced 16:9 / 4:3 after the player sets the video's own shape.
@@ -788,17 +723,33 @@ class PlayerActivity : BaseActivity() {
     private fun loadFavs(): Set<String> = items.map { it.playlistId }.distinct()
         .flatMap { pid -> store.favorites(com.farloh.tv.data.Section.LIVE, pid).map { "${pid.orEmpty()}|$it" } }.toHashSet()
 
+    /** What the ★ button saves: the channel, the movie, or the episode's TV show. */
+    private fun favTarget(p: Playable): Pair<com.farloh.tv.data.Section, String>? = when (p.kind) {
+        Kind.LIVE -> com.farloh.tv.data.Section.LIVE to p.id
+        Kind.MOVIE -> com.farloh.tv.data.Section.MOVIES to p.id
+        Kind.EPISODE -> p.seriesId?.let { com.farloh.tv.data.Section.SERIES to it }
+    }
+
+    private fun isFav(p: Playable): Boolean {
+        if (p.kind == Kind.LIVE) return favKey(p) in favs
+        val (sec, id) = favTarget(p) ?: return false
+        return store.isFavorite(sec, id, p.playlistId)
+    }
+
     private fun toggleFavorite() {
-        val added = store.toggleFavorite(current.id, com.farloh.tv.data.Section.LIVE, current.playlistId)
+        val (sec, id) = favTarget(current) ?: return
+        val added = store.toggleFavorite(id, sec, current.playlistId)
         favs = loadFavs()
-        toast(if (added) "Added to Favourites" else "Removed from Favourites")
+        val what = when (current.kind) { Kind.LIVE -> "Channel"; Kind.MOVIE -> "Movie"; Kind.EPISODE -> "TV show" }
+        toast(if (added) "$what added to Favourites" else "$what removed from Favourites")
         updateInfoBar()
+        updateActions()
     }
 
     private fun showInfo(focusButtons: Boolean) {
         updateInfoBar()
         infoBar.visibility = View.VISIBLE
-        if (focusButtons) btnChannels.requestFocus()
+        if (focusButtons) findViewById<View>(R.id.liveActions)?.findViewById<View>(R.id.actChannels)?.requestFocus()
         scheduleHideInfo(if (focusButtons) 10_000L else 5_000L)
     }
 
@@ -816,9 +767,7 @@ class PlayerActivity : BaseActivity() {
         val p = current
         chName.text = listOfNotNull(p.num?.takeIf { it.isNotBlank() }, p.title).joinToString("   ")
         chLogo.loadImage(p.logo)
-        val fav = favKey(p) in favs
-        btnFav.setImageResource(if (fav) R.drawable.ic_star else R.drawable.ic_star_border)
-        btnFav.setColorFilter(androidx.core.content.ContextCompat.getColor(this, if (fav) R.color.accent else R.color.text))
+        updateActions()
         clock.text = Fmt.time(this, System.currentTimeMillis())
         renderNowNext()
     }
@@ -852,7 +801,8 @@ class PlayerActivity : BaseActivity() {
 
     private fun showPanel() {
         hideInfo()
-        panelTitle.text = PlayQueue.categoryName.ifBlank { "Channels" }
+        playerView.hideController()
+        panelTitle.text = if (isLive) PlayQueue.categoryName.ifBlank { "Channels" } else current.subtitle ?: "Episodes"
         if (channelAdapter.items !== items) channelAdapter.submit(items) else channelAdapter.notifyDataSetChanged()
         channelPanel.visibility = View.VISIBLE
         val lm = channelList.layoutManager as LinearLayoutManager
@@ -901,41 +851,199 @@ class PlayerActivity : BaseActivity() {
         contentFrame()?.apply { scaleX = zoom; scaleY = zoom }
     }
 
+    /** Settings button: everything that isn't on the bar itself. */
     private fun videoMenu() {
-        val exo = player
         val opts = ArrayList<Pair<String, () -> Unit>>()
-        opts += "Screen size: ${SettingsActivity.RESIZES.firstOrNull { it.first == store.videoResize }?.second ?: "Fit"}" to {
-            Dialogs.choose(this, "Screen size", SettingsActivity.RESIZES.map { it.second },
-                SettingsActivity.RESIZES.map { it.first }, store.videoResize) {
-                store.videoResize = it; zoom = 1f; applyZoom(); applyResize()
-                showGestureInfo(SettingsActivity.RESIZES.first { r -> r.first == it }.second)
-            }
-        }
-        if (zoom > 1.01f) opts += "Reset zoom (${(zoom * 100).roundToInt()}%)" to { zoom = 1f; applyZoom() }
-        // Not on TV for now (TV boxes that send surround sound straight to the TV can't change speed).
-        if (!isLive && !tvMode && exo != null) opts += "Playback speed: ${exo.playbackParameters.speed}x" to {
-            val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
-            Dialogs.choose(this, "Playback speed", speeds.map { "${it}x" }, speeds, exo.playbackParameters.speed) {
-                player?.setPlaybackSpeed(it)
-            }
-        }
-        opts += "Audio track" to { trackDialog(C.TRACK_TYPE_AUDIO, "Audio") }
-        opts += "Subtitles" to { if (isLive) trackDialog(C.TRACK_TYPE_TEXT, "Subtitles") else subtitleMenu() }
+        opts += "Subtitles…" to { if (isLive) trackDialog(C.TRACK_TYPE_TEXT, "Subtitles") else subtitleMenu() }
         opts += "Sleep timer: ${if (sleepMinutes > 0) "$sleepMinutes min" else "Off"}" to {
             val mins = listOf(0, 15, 30, 45, 60, 90, 120)
             Dialogs.choose(this, "Sleep timer", mins.map { if (it == 0) "Off" else "$it minutes" }, mins, sleepMinutes) { setSleepTimer(it) }
         }
+        if (zoom > 1.01f) opts += "Reset zoom (${(zoom * 100).roundToInt()}%)" to { zoom = 1f; applyZoom() }
+        if (pipSupported()) opts += "Picture-in-picture" to { enterPip(explain = true); Unit }
         if (!tvMode) opts += "Lock screen (ignore touches)" to { setLocked(true) }
         if (!tvMode) opts += "Touch gestures: ${if (store.playerGestures) "On" else "Off"}" to {
             store.playerGestures = !store.playerGestures
             toast(if (store.playerGestures) "Gestures on" else "Gestures off")
         }
-        if (pipSupported()) opts += "Picture-in-picture" to { enterPip(explain = true); Unit }
         AlertDialog.Builder(this)
             .setTitle("Settings")
             .setItems(opts.map { it.first }.toTypedArray()) { _, which -> opts[which].second() }
             .setNegativeButton("Close", null)
             .show()
+    }
+
+    // ---------------- Bottom bar ----------------
+
+    private fun bindActions(row: View) {
+        val label = row.findViewById<TextView>(R.id.actLabel)
+        fun on(id: Int, click: () -> Unit, hold: (() -> Unit)? = null) {
+            val v = row.findViewById<View>(id) ?: return
+            v.setOnClickListener { click() }
+            if (hold != null) v.setOnLongClickListener { hold(); true }
+            v.setOnFocusChangeListener { view, f ->
+                if (f) label.text = view.contentDescription
+                if (f && isLive) scheduleHideInfo(10_000L)
+            }
+        }
+        on(R.id.actChannels, { showPanel() })
+        on(R.id.actSpeed, { chooseSpeed() })
+        on(R.id.actAudio, { trackDialog(C.TRACK_TYPE_AUDIO, "Audio track") })
+        on(R.id.actSync, { audioSyncDialog() })
+        on(R.id.actCC, { toggleSubtitles() }, { if (isLive) trackDialog(C.TRACK_TYPE_TEXT, "Subtitles") else subtitleMenu() })
+        on(R.id.actSize, { nextScreenSize() }, { chooseScreenSize() })
+        on(R.id.actMultiview, { startMultiview() })
+        on(R.id.actFav, { toggleFavorite() })
+        on(R.id.actExternal, { openExternal() })
+        on(R.id.actSettings, { videoMenu() })
+    }
+
+    /** Shows/hides buttons for what's playing and keeps their state (speed, ★, CC) current. */
+    private fun updateActions() {
+        if (items.isEmpty()) return
+        val p = current
+        val exo = player
+        val speed = exo?.playbackParameters?.speed ?: 1f
+        val subsOn = exo?.currentTracks?.groups?.any { it.type == C.TRACK_TYPE_TEXT && it.isSelected } == true
+        val fav = isFav(p)
+        val accent = androidx.core.content.ContextCompat.getColor(this, R.color.accent)
+        val plain = androidx.core.content.ContextCompat.getColor(this, R.color.text)
+        for (row in actionRows) {
+            row.findViewById<View>(R.id.actChannels)?.apply {
+                // Live TV: channel list. TV shows: episode list. Movies: nothing to list.
+                visibility = if (isLive || (p.kind == Kind.EPISODE && items.size > 1)) View.VISIBLE else View.GONE
+                contentDescription = if (isLive) "Channels" else "Episodes"
+            }
+            row.findViewById<TextView>(R.id.actSpeed)?.apply {
+                visibility = if (isLive) View.GONE else View.VISIBLE // live TV always plays at normal speed
+                text = speedLabel(speed)
+            }
+            row.findViewById<ImageView>(R.id.actCC)?.setColorFilter(if (subsOn) accent else plain)
+            row.findViewById<ImageView>(R.id.actFav)?.apply {
+                visibility = if (favTarget(p) != null) View.VISIBLE else View.GONE
+                setImageResource(if (fav) R.drawable.ic_star else R.drawable.ic_star_border)
+                setColorFilter(if (fav) accent else plain)
+                contentDescription = when (p.kind) {
+                    Kind.LIVE -> "Favourite channel"; Kind.MOVIE -> "Favourite movie"; Kind.EPISODE -> "Favourite TV show"
+                }
+            }
+            row.findViewById<ImageView>(R.id.actSync)?.setColorFilter(if (store.audioDelayMs != 0) accent else plain)
+        }
+    }
+
+    private fun speedLabel(s: Float): String =
+        (if (s == s.toInt().toFloat()) "${s.toInt()}.0" else s.toString().trimEnd('0')) + "x"
+
+    /** Speed uses the player's normal speed control: it works where the device can do it. */
+    private fun chooseSpeed() {
+        val exo = player ?: return
+        val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+        Dialogs.choose(this, "Playback speed", speeds.map { speedLabel(it) }, speeds, exo.playbackParameters.speed) {
+            player?.setPlaybackSpeed(it)
+            showGestureInfo("Speed ${speedLabel(it)}")
+            updateActions()
+        }
+    }
+
+    /** CC: subtitles on/off in one press (hold for the full subtitles menu). */
+    private fun toggleSubtitles() {
+        val exo = player ?: return
+        val groups = exo.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+        val params = exo.trackSelectionParameters.buildUpon()
+        if (groups.any { it.isSelected }) {
+            exo.trackSelectionParameters = params.clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+            showGestureInfo("Subtitles off")
+        } else if (groups.isEmpty()) {
+            toast(if (isLive) "No subtitles on this channel"
+                  else "No subtitles in this video. Hold CC (or Settings › Subtitles) to search online.", long = !isLive)
+        } else {
+            val lang = store.subtitleLanguage.ifBlank { java.util.Locale.getDefault().language }
+            val g = groups.firstOrNull { it.isSupported && it.getTrackFormat(0).language?.startsWith(lang) == true }
+                ?: groups.firstOrNull { it.isSupported } ?: groups.first()
+            exo.trackSelectionParameters = params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                .setOverrideForType(androidx.media3.common.TrackSelectionOverride(g.mediaTrackGroup, 0)).build()
+            val f = g.getTrackFormat(0)
+            val name = f.label ?: f.language?.let { java.util.Locale(it).displayLanguage }
+            showGestureInfo("Subtitles on" + (name?.let { "\n$it" } ?: ""))
+        }
+        handler.postDelayed({ updateActions() }, 300)
+    }
+
+    /** Screen size: each press moves to the next size (hold to pick from the list). */
+    private fun nextScreenSize() {
+        val sizes = SettingsActivity.RESIZES
+        val i = sizes.indexOfFirst { it.first == store.videoResize }
+        val next = sizes[(i + 1).mod(sizes.size)]
+        setScreenSize(next.first)
+    }
+
+    private fun chooseScreenSize() {
+        Dialogs.choose(this, "Screen size", SettingsActivity.RESIZES.map { it.second },
+            SettingsActivity.RESIZES.map { it.first }, store.videoResize) { setScreenSize(it) }
+    }
+
+    private fun setScreenSize(mode: String) {
+        store.videoResize = mode
+        zoom = 1f; applyZoom(); applyResize()
+        showGestureInfo("Screen size: " + (SettingsActivity.RESIZES.firstOrNull { it.first == mode }?.second ?: mode))
+    }
+
+    /** Audio sync: move the sound earlier or later than the picture, 50 ms at a time. */
+    private fun audioSyncDialog() {
+        fun describe(ms: Int) = when {
+            ms == 0 -> "In sync (0 ms)"
+            ms > 0 -> "Sound $ms ms later than the picture"
+            else -> "Sound ${-ms} ms earlier than the picture"
+        }
+        val text = TextView(this).apply {
+            setTextColor(androidx.core.content.ContextCompat.getColor(this@PlayerActivity, R.color.text))
+            textSize = 18f
+            setPadding(dp(24), dp(12), dp(24), dp(4))
+            text = describe(store.audioDelayMs)
+        }
+        val hint = TextView(this).apply {
+            setTextColor(androidx.core.content.ContextCompat.getColor(this@PlayerActivity, R.color.text2))
+            textSize = 13f
+            setPadding(dp(24), dp(4), dp(24), dp(8))
+            this.text = "Kept for all videos until you change it. Has no effect when surround sound goes straight to your TV or amplifier."
+        }
+        val box = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            addView(text); addView(hint)
+        }
+        fun change(to: Int) {
+            val ms = to.coerceIn(-2000, 2000)
+            store.audioDelayMs = ms
+            delay.setDelayMs(ms)
+            text.text = describe(ms)
+            updateActions()
+        }
+        val d = AlertDialog.Builder(this)
+            .setTitle("Audio sync")
+            .setView(box)
+            .setNegativeButton("− 50 ms", null)
+            .setPositiveButton("+ 50 ms", null)
+            .setNeutralButton("Reset", null)
+            .create()
+        d.setOnShowListener {
+            // Keep the box open while adjusting.
+            d.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener { change(store.audioDelayMs - 50) }
+            d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { change(store.audioDelayMs + 50) }
+            d.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener { change(0) }
+            d.getButton(AlertDialog.BUTTON_POSITIVE).requestFocus()
+        }
+        d.show()
+    }
+
+    /** Multiview: pick a layout, then this video carries on in the main window. */
+    private fun startMultiview() {
+        MvLayouts.pick(this, store.multiviewLayout) { layout ->
+            savePosition()
+            val pos = if (!isLive) player?.currentPosition ?: 0L else 0L
+            MultiviewActivity.start(this, layout, items, index, PlayQueue.categoryName, pos)
+            finish()
+        }
     }
 
     private fun setSleepTimer(minutes: Int) {
@@ -1155,6 +1263,12 @@ class PlayerActivity : BaseActivity() {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (Build.VERSION.SDK_INT >= 24 && isInPictureInPictureMode) return super.dispatchKeyEvent(event)
+        if (!isLive && channelPanel.visibility == View.VISIBLE) {
+            if (event.action == KeyEvent.ACTION_DOWN &&
+                (event.keyCode == KeyEvent.KEYCODE_BACK || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)
+            ) { hidePanel(); return true }
+            return super.dispatchKeyEvent(event)
+        }
         if (!isLive) {
             if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_BACK &&
                 playerView.isControllerFullyVisible
