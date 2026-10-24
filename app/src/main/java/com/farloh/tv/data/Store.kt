@@ -332,6 +332,28 @@ class Store private constructor(context: Context) {
         set(value) = prefs.edit().apply {
             if (value.isEmpty()) remove("vpn_password") else putString("vpn_password", Crypto.encrypt(value))
         }.apply()
+    // ---- Search history (all playlists) ----
+    /** How many recent searches are kept: 5 (default), 10 or 20. */
+    var searchHistoryLimit: Int by IntPref("search_history_limit", 5)
+
+    fun searchHistory(): List<String> = runCatching {
+        val a = JSONArray(prefs.getString("search_history", "[]"))
+        (0 until a.length()).map { a.getString(it) }
+    }.getOrDefault(emptyList()).take(searchHistoryLimit)
+
+    private fun saveSearchHistory(list: List<String>) =
+        prefs.edit().putString("search_history", JSONArray(list.take(searchHistoryLimit)).toString()).apply()
+
+    /** Newest first; the same search isn't kept twice. */
+    fun addSearch(text: String) {
+        val t = text.trim()
+        if (t.isEmpty()) return
+        saveSearchHistory(listOf(t) + searchHistory().filter { !it.equals(t, ignoreCase = true) })
+    }
+
+    fun removeSearch(text: String) = saveSearchHistory(searchHistory().filter { it != text })
+    fun clearSearchHistory() = prefs.edit().remove("search_history").apply()
+
     /** The first-start "Allow notifications / files" question has been shown on this device. */
     var permissionsAsked: Boolean by BoolPref("permissions_asked", false)
 

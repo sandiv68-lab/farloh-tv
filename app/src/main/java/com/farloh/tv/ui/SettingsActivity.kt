@@ -205,6 +205,11 @@ class SettingsActivity : BaseActivity() {
                 store.recentLimit = it; refresh()
             }
         }
+        r += Row.Item("Search history", "Last ${store.searchHistoryLimit} searches", "Recent searches shown on the Search screen") {
+            Dialogs.choose(this, "Search history", SEARCH_HISTORY.map { "Last $it searches" }, SEARCH_HISTORY, store.searchHistoryLimit) {
+                store.searchHistoryLimit = it; refresh()
+            }
+        }
         r += Row.Item("Channel history limit", limitLabel(store.historyLimit), "Size of the \"Recently watched\" group in Live TV") {
             val labels = HISTORY_LIMITS.map { limitLabel(it) } + "Clear history now"
             Dialogs.choose(this, "Channel history limit", labels, HISTORY_LIMITS + (-1), store.historyLimit) {
@@ -456,6 +461,14 @@ class SettingsActivity : BaseActivity() {
         }
         r += Row.Item("Update files", mb(sz?.updates), "Removed automatically after an update installs") {
             lifecycleScope.launch { com.farloh.tv.data.StorageInfo.clearUpdates(this@SettingsActivity); remeasure("Update files cleared") }
+        }
+        val searches = store.searchHistory().size
+        r += Row.Item("Search history", if (searches == 0) "Empty" else Fmt.count(searches, "search", "searches"),
+            "Your recent searches. Tap to clear") {
+            if (searches == 0) toast("Search history is already empty")
+            else Dialogs.confirm(this, "Clear search history?", "Your $searches recent search(es) will be removed.", "Clear") {
+                store.clearSearchHistory(); toast("Search history cleared"); refresh()
+            }
         }
         r += Row.Item("TV guide", "Memory only", "Kept for ${store.epgMinutes} minutes per channel. Tap to clear") {
             Xtream.clearCache(); toast("TV guide cleared")
@@ -778,6 +791,7 @@ class SettingsActivity : BaseActivity() {
         private val TEXT_ZOOMS = listOf(0, 80, 90, 100, 115, 130)
         val RESIZES = listOf("fit" to "Fit", "stretch" to "Stretch", "crop" to "Crop (fill screen)", "16:9" to "16:9", "4:3" to "4:3")
         private val HISTORY_LIMITS = listOf(0, 10, 20, 50)
+        private val SEARCH_HISTORY = listOf(5, 10, 20)
         private val LANGUAGES = listOf(
             "" to "Device language", "en" to "English", "zh" to "Chinese", "ms" to "Malay", "ta" to "Tamil",
             "hi" to "Hindi", "ar" to "Arabic", "id" to "Indonesian", "th" to "Thai", "es" to "Spanish",

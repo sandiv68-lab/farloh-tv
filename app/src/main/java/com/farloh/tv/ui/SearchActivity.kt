@@ -104,6 +104,12 @@ class SearchActivity : BaseActivity() {
         v.findViewById<View>(R.id.fav).visibility = if (favKey(sec, item) in favs) View.VISIBLE else View.GONE
     }
 
+    /** Recent searches, shown before anything has been searched. */
+    private val historyAdapter = SimpleAdapter<String>(R.layout.row_category, 1.02f) { v, text, _ ->
+        v.findViewById<TextView>(R.id.name).text = text
+        v.findViewById<TextView>(R.id.count).text = "Search again"
+    }
+
     private val guideAdapter = SimpleAdapter<GuideHit>(R.layout.row_channel, 1.02f) { v, hit, _ ->
         val p = hit.programme
         val now = p.isNow()
@@ -164,8 +170,38 @@ class SearchActivity : BaseActivity() {
             ItemOptions.show(this, Section.LIVE, hit.channel, accountOf(hit.channel), playLive = { ext -> playGuideChannel(hit, ext) })
         }
 
+        historyAdapter.onClick = { text, _ ->
+            query.setText(text)
+            query.setSelection(text.length)
+            search()
+        }
+        historyAdapter.onLongClick = { text, _ ->
+            androidx.appcompat.app.AlertDialog.Builder(this).setTitle(text)
+                .setItems(arrayOf("Search again", "Remove from history", "Clear all search history")) { _, which ->
+                    when (which) {
+                        0 -> { query.setText(text); search() }
+                        1 -> { store.removeSearch(text); show(shown) }
+                        else -> { store.clearSearchHistory(); show(shown); toast("Search history cleared") }
+                    }
+                }
+                .setNegativeButton("Close", null).show()
+        }
+
         updateTabs()
+        show(shown)
         query.requestFocus()
+    }
+
+    /** Before the first search: the recent searches (if any). */
+    private fun showHistory(): Boolean {
+        val history = store.searchHistory()
+        if (history.isEmpty()) return false
+        resultsRv.layoutManager = LinearLayoutManager(this)
+        resultsRv.adapter = historyAdapter
+        historyAdapter.submit(history)
+        summary.text = "Recent searches  •  hold OK / long-press to remove"
+        empty.visibility = View.GONE
+        return true
     }
 
     override fun onResume() {
@@ -185,6 +221,7 @@ class SearchActivity : BaseActivity() {
         }
         hideKeyboard()
         lastQuery = text
+        store.addSearch(text)
         job?.cancel()
         loading.visibility = View.VISIBLE
         empty.visibility = View.GONE
@@ -309,6 +346,7 @@ class SearchActivity : BaseActivity() {
     private fun show(key: String) {
         shown = key
         updateTabs()
+        if (lastQuery.isEmpty() && showHistory()) return
         if (key == GUIDE) {
             resultsRv.layoutManager = LinearLayoutManager(this)
             resultsRv.adapter = guideAdapter
