@@ -217,13 +217,14 @@ class PlayerActivity : BaseActivity() {
         channelList.adapter = channelAdapter
         channelAdapter.onClick = { _, pos -> hidePanel(); if (isLive) switchTo(pos) else goToItem(pos) }
 
+        // Live TV: tapping the picture shows / hides the overlay (the layer is only visible for Live TV).
+        tapLayer.setOnClickListener {
+            if (channelPanel.visibility == View.VISIBLE) hidePanel()
+            else if (infoBar.visibility == View.VISIBLE) hideInfo() else showInfo(focusButtons = false, controls = true)
+        }
         if (isLive) {
             playerView.useController = false
             tapLayer.visibility = View.VISIBLE
-            tapLayer.setOnClickListener {
-                if (channelPanel.visibility == View.VISIBLE) hidePanel()
-                else if (infoBar.visibility == View.VISIBLE) hideInfo() else showInfo(focusButtons = false, controls = true)
-            }
         } else {
             playerView.useController = true
             tapLayer.visibility = View.GONE

@@ -95,8 +95,9 @@ class MvPicker(
         list(groupName, labels, back) { i ->
             when (val item = items[i]) {
                 is Show -> episodes(pl, item) { chooseItem(pl, sec, groupName, items, back) }
+                is Movie -> playable(pl, item)?.let { onPicked(listOf(it), 0, groupName) }
                 else -> {
-                    // Channels and movies: the whole group is the list (channel up/down in the window).
+                    // Channels: the whole group is the list (channel up/down in the window).
                     val list = items.mapNotNull { playable(pl, it) }
                     val index = list.indexOfFirst { it.id == item.id }.coerceAtLeast(0)
                     onPicked(list, index, groupName)

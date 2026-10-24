@@ -258,7 +258,7 @@ class SeriesDetailActivity : BaseActivity() {
             val key = "${Kind.EPISODE.name}_${ep.id}"
             val entry = local[key]
             val offline = if (entry != null && states[key]?.state == DownloadState.DONE) Downloads.playable(this, entry) else null
-            offline?.copy(tmdbId = info?.tmdbId) ?: remotePlayable(ep)
+            offline?.copy(tmdbId = info?.tmdbId, seriesId = seriesId) ?: remotePlayable(ep)
         }
         Launcher.play(this, queue, position, external = external, resume = resume, categoryName = showName)
     }
