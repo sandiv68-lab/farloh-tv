@@ -47,7 +47,6 @@ class SettingsActivity : BaseActivity() {
         v.findViewById<TextView>(R.id.title).text = h.title
         v.findViewById<TextView>(R.id.summary).text = h.summary
     }
-    private var parentalUnlocked = false
     private val backup = BackupFlow(this)
     private val vpn = VpnFlow(this) { if (::list.isInitialized) refresh() }
     private val permissions = AppPermissions(this) { if (::list.isInitialized) refresh() }
@@ -503,9 +502,10 @@ class SettingsActivity : BaseActivity() {
 
     // ---------------- Parental control ----------------
 
+    /** The PIN is asked every time a parental setting is changed (nothing stays unlocked). */
     private fun unlockParental(action: () -> Unit) {
-        if (parentalUnlocked || !store.hasPin) { action(); return }
-        Dialogs.requirePin(this) { parentalUnlocked = true; action() }
+        if (!store.hasPin) { action(); return }
+        Dialogs.requirePin(this) { action() }
     }
 
     private fun hideGroups(section: Section) {
@@ -558,8 +558,7 @@ class SettingsActivity : BaseActivity() {
             Dialogs.input(this, "Enter the PIN again", password = true, numeric = true, maxLength = 8) { second ->
                 if (first != second) { toast("PINs didn't match"); return@input }
                 store.setPin(first)
-                parentalUnlocked = true
-                toast("PIN set")
+                toast("PIN set – it's now needed to change hidden groups")
                 refresh()
             }
         }

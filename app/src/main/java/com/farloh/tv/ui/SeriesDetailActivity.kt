@@ -160,13 +160,50 @@ class SeriesDetailActivity : BaseActivity() {
 
     private fun selectSeason(season: Int) {
         if (season == currentSeason) return
-        val old = seasons.indexOf(currentSeason)
         currentSeason = season
-        if (old >= 0) seasonAdapter.notifyItemChanged(old)
-        seasonAdapter.notifyItemChanged(seasons.indexOf(season))
+        // Update the highlight in place (redrawing the chips while the remote moves along them could stop the row scrolling).
+        val rv = findViewById<RecyclerView>(R.id.seasons)
+        for (i in 0 until rv.childCount) {
+            val child = rv.getChildAt(i)
+            val pos = rv.getChildAdapterPosition(child)
+            if (pos in seasons.indices) child.isSelected = seasons[pos] == season
+        }
         episodeAdapter.submit(info?.episodes?.get(season).orEmpty())
         findViewById<RecyclerView>(R.id.episodes).scrollToPosition(0)
     }
+
+    /**
+     * TV remote: Left/Right along the seasons row always reaches the next season, scrolling the row as needed
+     * (Android's own focus search could stop at the last fully visible season, e.g. season 7).
+     */
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        val code = event.keyCode
+        if (event.action == android.view.KeyEvent.ACTION_DOWN &&
+            (code == android.view.KeyEvent.KEYCODE_DPAD_RIGHT || code == android.view.KeyEvent.KEYCODE_DPAD_LEFT)
+        ) {
+            val rv = findViewById<RecyclerView>(R.id.seasons)
+            val focused = currentFocus
+            if (focused != null && focused.parent === rv) {
+                val pos = rv.getChildAdapterPosition(focused)
+                val target = pos + if (code == android.view.KeyEvent.KEYCODE_DPAD_RIGHT) 1 else -1
+                if (pos != RecyclerView.NO_POSITION && target in seasons.indices) {
+                    val next = rv.layoutManager?.findViewByPosition(target)
+                    if (next != null && isFullyShown(rv, next)) {
+                        next.requestFocus()
+                    } else {
+                        rv.scrollToPosition(target)
+                        rv.post { (rv.layoutManager?.findViewByPosition(target) ?: return@post).requestFocus() }
+                    }
+                    return true
+                }
+                if (pos != RecyclerView.NO_POSITION && code == android.view.KeyEvent.KEYCODE_DPAD_RIGHT) return true // end of the row
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    private fun isFullyShown(rv: RecyclerView, v: View): Boolean =
+        v.left >= rv.paddingLeft && v.right <= rv.width - rv.paddingRight
 
     private fun updateFav() {
         val fav = store.isFavorite(com.farloh.tv.data.Section.SERIES, seriesId, pid)
