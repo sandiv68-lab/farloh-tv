@@ -28,8 +28,8 @@ android {
         applicationId = "com.farloh.tv"
         minSdk = 21
         targetSdk = 35
-        versionCode = 11
-        versionName = "1.7.0"
+        versionCode = 12
+        versionName = "1.7.1"
         vectorDrawables.useSupportLibrary = true
         // Google Sheet (published as CSV) with news + update notices for the bell. Empty = bell hidden.
         buildConfigField("String", "FEED_URL", "\"${(project.findProperty("farloh.feedUrl") as String?) ?: ""}\"")
