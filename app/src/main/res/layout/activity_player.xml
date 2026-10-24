@@ -21,6 +21,25 @@
             android:textSize="20sp" android:textStyle="bold" />
     </LinearLayout>
 
+    <!-- Live TV: playback controls in the middle (shown with the info bar). Previous/next = channel down/up;
+         rewind/forward are greyed out because live streams can't skip. -->
+    <LinearLayout android:id="@+id/liveCenter" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_gravity="center" android:gravity="center" android:orientation="horizontal" android:visibility="gone">
+        <ImageButton android:id="@+id/livePrev" style="@style/IconBtn" android:layout_width="56dp" android:layout_height="56dp"
+            android:src="@drawable/ic_skip_prev" android:contentDescription="Previous channel" />
+        <ImageButton android:id="@+id/liveRew" style="@style/IconBtn" android:layout_width="56dp" android:layout_height="56dp"
+            android:layout_marginStart="20dp" android:alpha="0.35" android:enabled="false" android:focusable="false"
+            android:src="@drawable/ic_rewind" android:contentDescription="Rewind (not available on live TV)" />
+        <ImageButton android:id="@+id/livePlayPause" style="@style/IconBtn" android:layout_width="76dp"
+            android:layout_height="76dp" android:layout_marginStart="20dp" android:padding="16dp"
+            android:src="@drawable/ic_pause" android:contentDescription="Pause" />
+        <ImageButton android:id="@+id/liveFwd" style="@style/IconBtn" android:layout_width="56dp" android:layout_height="56dp"
+            android:layout_marginStart="20dp" android:alpha="0.35" android:enabled="false" android:focusable="false"
+            android:src="@drawable/ic_forward" android:contentDescription="Forward (not available on live TV)" />
+        <ImageButton android:id="@+id/liveNext" style="@style/IconBtn" android:layout_width="56dp" android:layout_height="56dp"
+            android:layout_marginStart="20dp" android:src="@drawable/ic_skip_next" android:contentDescription="Next channel" />
+    </LinearLayout>
+
     <!-- Live TV info bar -->
     <LinearLayout android:id="@+id/infoBar" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_gravity="bottom" android:background="@drawable/bottom_scrim" android:orientation="vertical"

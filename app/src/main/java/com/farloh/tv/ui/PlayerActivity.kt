@@ -98,6 +98,9 @@ class PlayerActivity : BaseActivity() {
     private lateinit var vodTop: View
     private lateinit var vodTitle: TextView
     private lateinit var infoBar: View
+    /** Live TV: ⏮ ⏪ ▶/⏸ ⏩ ⏭ in the middle of the screen. */
+    private lateinit var liveCenter: View
+    private lateinit var livePlayPause: ImageView
     private lateinit var chLogo: ImageView
     private lateinit var chName: TextView
     private lateinit var nowTitle: TextView
@@ -119,7 +122,7 @@ class PlayerActivity : BaseActivity() {
     private val current: Playable get() = items[index]
     private val isLive: Boolean get() = items.firstOrNull()?.kind == Kind.LIVE
 
-    private val hideInfoRunnable = Runnable { infoBar.visibility = View.GONE }
+    private val hideInfoRunnable = Runnable { hideInfo() }
     private val reconnectRunnable = Runnable { reconnect() }
     private val tickRunnable = object : Runnable {
         override fun run() {
@@ -161,6 +164,11 @@ class PlayerActivity : BaseActivity() {
         // Movies & episodes: the title sits in the bottom panel of the controls (like Live TV).
         vodTitle = playerView.findViewById(R.id.vodPanelTitle) ?: findViewById(R.id.vodTitle)
         infoBar = findViewById(R.id.infoBar)
+        liveCenter = findViewById(R.id.liveCenter)
+        livePlayPause = findViewById(R.id.livePlayPause)
+        findViewById<View>(R.id.livePrev).setOnClickListener { switchTo(index - 1); showInfo(focusButtons = false, controls = true) }
+        findViewById<View>(R.id.liveNext).setOnClickListener { switchTo(index + 1); showInfo(focusButtons = false, controls = true) }
+        livePlayPause.setOnClickListener { toggleLivePause() }
         chLogo = findViewById(R.id.chLogo)
         chName = findViewById(R.id.chName)
         nowTitle = findViewById(R.id.nowTitle)
@@ -214,7 +222,7 @@ class PlayerActivity : BaseActivity() {
             tapLayer.visibility = View.VISIBLE
             tapLayer.setOnClickListener {
                 if (channelPanel.visibility == View.VISIBLE) hidePanel()
-                else if (infoBar.visibility == View.VISIBLE) hideInfo() else showInfo(focusButtons = false)
+                else if (infoBar.visibility == View.VISIBLE) hideInfo() else showInfo(focusButtons = false, controls = true)
             }
         } else {
             playerView.useController = true
@@ -594,7 +602,10 @@ class PlayerActivity : BaseActivity() {
             }
         }
 
-        override fun onIsPlayingChanged(isPlaying: Boolean) = updatePipParams()
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            updatePipParams()
+            if (isLive) updateLivePlayPause()
+        }
 
         override fun onTracksChanged(tracks: androidx.media3.common.Tracks) = updateActions()
 
@@ -746,9 +757,11 @@ class PlayerActivity : BaseActivity() {
         updateActions()
     }
 
-    private fun showInfo(focusButtons: Boolean) {
+    /** [controls] = also show ⏮ ⏪ ▶/⏸ ⏩ ⏭ in the middle (when you press OK / tap; not on every channel change). */
+    private fun showInfo(focusButtons: Boolean, controls: Boolean = focusButtons) {
         updateInfoBar()
         infoBar.visibility = View.VISIBLE
+        if (controls && isLive) { updateLivePlayPause(); liveCenter.visibility = View.VISIBLE }
         if (focusButtons) findViewById<View>(R.id.liveActions)?.findViewById<View>(R.id.actChannels)?.requestFocus()
         scheduleHideInfo(if (focusButtons) 10_000L else 5_000L)
     }
@@ -761,6 +774,21 @@ class PlayerActivity : BaseActivity() {
     private fun hideInfo() {
         handler.removeCallbacks(hideInfoRunnable)
         infoBar.visibility = View.GONE
+        liveCenter.visibility = View.GONE
+    }
+
+    /** Live TV can be paused (and resumed where it was, as long as the stream allows); it can't skip. */
+    private fun toggleLivePause() {
+        val exo = player ?: return
+        if (exo.playWhenReady) exo.pause() else exo.play()
+        updateLivePlayPause()
+        scheduleHideInfo(10_000L)
+    }
+
+    private fun updateLivePlayPause() {
+        val playing = player?.playWhenReady != false
+        livePlayPause.setImageResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play)
+        livePlayPause.contentDescription = if (playing) "Pause" else "Play"
     }
 
     private fun updateInfoBar() {
@@ -854,7 +882,10 @@ class PlayerActivity : BaseActivity() {
     /** Settings button: the bar's options (by name) plus the extras. */
     private fun videoMenu() {
         val exo = player
+        val p = current
         val opts = ArrayList<Pair<String, () -> Unit>>()
+        if (isLive) opts += "Channels" to { showPanel() }
+        else if (p.kind == Kind.EPISODE && items.size > 1) opts += "Episodes" to { showPanel() }
         if (!isLive && exo != null) opts += "Playback speed: ${speedLabel(exo.playbackParameters.speed)}" to { chooseSpeed() }
         opts += "Audio track" to { trackDialog(C.TRACK_TYPE_AUDIO, "Audio track") }
         opts += "Audio sync: ${if (store.audioDelayMs == 0) "0 ms" else "%+d ms".format(store.audioDelayMs)}" to { audioSyncDialog() }
@@ -862,6 +893,11 @@ class PlayerActivity : BaseActivity() {
         opts += "Screen size: ${SettingsActivity.RESIZES.firstOrNull { it.first == store.videoResize }?.second ?: "Fit"}" to { chooseScreenSize() }
         if (zoom > 1.01f) opts += "Reset zoom (${(zoom * 100).roundToInt()}%)" to { zoom = 1f; applyZoom() }
         opts += "Multiview" to { startMultiview() }
+        if (favTarget(p) != null) {
+            val what = when (p.kind) { Kind.LIVE -> "channel"; Kind.MOVIE -> "movie"; Kind.EPISODE -> "TV show" }
+            opts += (if (isFav(p)) "★  Remove $what from Favourites" else "☆  Add $what to Favourites") to { toggleFavorite() }
+        }
+        opts += "Open in external" to { openExternal() }
         opts += "Sleep timer: ${if (sleepMinutes > 0) "$sleepMinutes min" else "Off"}" to {
             val mins = listOf(0, 15, 30, 45, 60, 90, 120)
             Dialogs.choose(this, "Sleep timer", mins.map { if (it == 0) "Off" else "$it minutes" }, mins, sleepMinutes) { setSleepTimer(it) }
@@ -1206,7 +1242,7 @@ class PlayerActivity : BaseActivity() {
 
     /** Leave buttons, lists and the seek bar alone, and the screen edges (system gestures). */
     private fun startsOnControls(ev: MotionEvent): Boolean {
-        if (hits(channelPanel, ev) || hits(infoBar, ev) || hits(vodTop, ev) || hits(status, ev)) return true
+        if (hits(channelPanel, ev) || hits(infoBar, ev) || hits(liveCenter, ev) || hits(vodTop, ev) || hits(status, ev)) return true
         val h = window.decorView.height
         if (ev.y < h * 0.06f || ev.y > h * 0.94f) return true
         if (!isLive && playerView.isControllerFullyVisible && ev.y > h * 0.70f) return true
@@ -1312,8 +1348,13 @@ class PlayerActivity : BaseActivity() {
             if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_DPAD_RIGHT) { hidePanel(); return true }
             return super.dispatchKeyEvent(event)
         }
-        if (infoBar.visibility == View.VISIBLE && infoBar.hasFocus()) {
-            if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_DPAD_UP) { hideInfo(); return true }
+        if (code == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || code == KeyEvent.KEYCODE_MEDIA_PLAY || code == KeyEvent.KEYCODE_MEDIA_PAUSE) {
+            toggleLivePause(); return true
+        }
+        if (infoBar.visibility == View.VISIBLE && (infoBar.hasFocus() || liveCenter.hasFocus())) {
+            if (code == KeyEvent.KEYCODE_BACK) { hideInfo(); return true }
+            // Up from the button bar goes to ⏮ ▶ ⏭ (if shown); Up from there closes the overlay.
+            if (code == KeyEvent.KEYCODE_DPAD_UP && (liveCenter.hasFocus() || liveCenter.visibility != View.VISIBLE)) { hideInfo(); return true }
             scheduleHideInfo(10_000L)
             return super.dispatchKeyEvent(event)
         }

@@ -202,9 +202,21 @@ class MultiviewActivity : BaseActivity() {
         }
     }
 
-    /** Only one window plays sound. */
+    /**
+     * Only one window plays sound. The other windows don't just go quiet: their sound is switched off
+     * completely. Movies often have surround sound (AC3/DTS) that the box sends straight to the TV, and while
+     * that is playing, even "muted", the TV can't play any other sound – so a muted movie silenced Live TV.
+     */
     private fun applySound() {
-        slots.forEachIndexed { i, s -> s.player?.volume = if (i == soundSlot) 1f else 0f }
+        slots.forEachIndexed { i, s ->
+            val exo = s.player ?: return@forEachIndexed
+            val on = i == soundSlot
+            exo.volume = if (on) 1f else 0f
+            val params = exo.trackSelectionParameters
+            if (params.disabledTrackTypes.contains(C.TRACK_TYPE_AUDIO) == on) {
+                exo.trackSelectionParameters = params.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, !on).build()
+            }
+        }
     }
 
     /** Arrow keys: the nearest window in that direction (works for the overlay layouts too). */
@@ -245,9 +257,10 @@ class MultiviewActivity : BaseActivity() {
         s.player?.let { s.video.player = null; it.release() }
         val delay = AudioDelayProcessor().apply { setDelayMs(store.audioDelayMs) }
         val exo = PlayerFactory.build(this, delay, multiview = true)
-        // No subtitles in the small windows.
+        // No subtitles in the windows; sound only for the chosen one (applySound below).
         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true).build()
         exo.addListener(listenerFor(s))
         val start = when {
             p.kind == Kind.LIVE -> 0L
