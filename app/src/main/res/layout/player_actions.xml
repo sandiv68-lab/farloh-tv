@@ -29,7 +29,7 @@
                 android:src="@drawable/ic_sync" android:contentDescription="Audio sync" />
             <View android:tag="gap" android:layout_width="8dp" android:layout_height="1dp" android:layout_weight="1" />
             <ImageButton android:id="@+id/actCC" style="@style/IconBtnBox"
-                android:src="@drawable/ic_cc" android:contentDescription="Subtitles on / off (hold for more)" />
+                android:src="@drawable/ic_cc" android:contentDescription="Subtitles on / off (hold to choose)" />
             <View android:tag="gap" android:layout_width="8dp" android:layout_height="1dp" android:layout_weight="1" />
             <ImageButton android:id="@+id/actSize" style="@style/IconBtnBox"
                 android:src="@drawable/ic_aspect" android:contentDescription="Screen size (hold to choose)" />

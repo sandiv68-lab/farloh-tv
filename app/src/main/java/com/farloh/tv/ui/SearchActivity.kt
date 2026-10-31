@@ -85,7 +85,8 @@ class SearchActivity : BaseActivity() {
         val ch = item as LiveChannel
         v.findViewById<TextView>(R.id.num).text = ch.num
         v.findViewById<TextView>(R.id.name).text = ch.name
-        v.findViewById<TextView>(R.id.sub).apply {
+        v.findViewById<TextView>(R.id.sub).visibility = View.GONE
+        v.findViewById<TextView>(R.id.playlistTag).apply {
             visibility = if (combined) View.VISIBLE else View.GONE
             text = playlistName(ch.playlistId)
         }
@@ -120,8 +121,12 @@ class SearchActivity : BaseActivity() {
         v.findViewById<TextView>(R.id.name).text = p.title
         v.findViewById<TextView>(R.id.sub).apply {
             visibility = View.VISIBLE
-            text = (if (combined) "${playlistName(hit.channel.playlistId)}  •  " else "") + "${hit.channel.name}  •  ${Fmt.time(this@SearchActivity, p.start)} – ${Fmt.time(this@SearchActivity, p.end)}" +
+            text = "${hit.channel.name}  •  ${Fmt.time(this@SearchActivity, p.start)} – ${Fmt.time(this@SearchActivity, p.end)}" +
                 if (!android.text.format.DateUtils.isToday(p.start)) "  (tomorrow)" else ""
+        }
+        v.findViewById<TextView>(R.id.playlistTag).apply {
+            visibility = if (combined) View.VISIBLE else View.GONE
+            text = playlistName(hit.channel.playlistId)
         }
         v.findViewById<ImageView>(R.id.logo).loadImage(hit.channel.image)
         v.findViewById<View>(R.id.fav).visibility = View.GONE

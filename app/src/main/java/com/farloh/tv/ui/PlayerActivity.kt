@@ -31,6 +31,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.annotation.OptIn
 import androidx.appcompat.app.AlertDialog
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -142,6 +143,12 @@ class PlayerActivity : BaseActivity() {
         v.findViewById<TextView>(R.id.name).text = p.title
         v.findViewById<ImageView>(R.id.logo).loadImage(p.logo)
         v.findViewById<View>(R.id.fav).visibility = if (favKey(p) in favs) View.VISIBLE else View.GONE
+        // Channels from more than one playlist (combined): say which.
+        v.findViewById<TextView>(R.id.playlistTag).apply {
+            val several = items.size > 1 && items.any { it.playlistId != items[0].playlistId }
+            visibility = if (several) View.VISIBLE else View.GONE
+            if (several) text = store.playlist(p.playlistId)?.name.orEmpty()
+        }
         v.isSelected = pos == index
     }
 
@@ -196,6 +203,7 @@ class PlayerActivity : BaseActivity() {
             }
         })
 
+        keepSubtitlesOnScreen()
         playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
         playerView.setKeepContentOnPlayerReset(true)
         playerView.setShowSubtitleButton(false)
@@ -222,6 +230,10 @@ class PlayerActivity : BaseActivity() {
             if (channelPanel.visibility == View.VISIBLE) hidePanel()
             else if (infoBar.visibility == View.VISIBLE) hideInfo() else showInfo(focusButtons = false, controls = true)
         }
+        fitControlsToScreen()
+        infoBar.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> keepLiveCenterAboveInfo() }
+        liveCenter.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> keepLiveCenterAboveInfo() }
+
         if (isLive) {
             playerView.useController = false
             tapLayer.visibility = View.VISIBLE
@@ -255,6 +267,66 @@ class PlayerActivity : BaseActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemBars()
+    }
+
+    /**
+     * Phones: keep every control clear of the navigation buttons and camera notch (they can appear over the
+     * video), and use a more compact bottom panel so ⏮ ▶ ⏭ aren't squeezed.
+     */
+    private fun fitControlsToScreen() {
+        if (tvMode) return
+        val d = resources.displayMetrics.density
+        val vodRoot = playerView.findViewById<View>(R.id.vodRoot)
+        val vodPanel = playerView.findViewById<View>(R.id.vodPanel)
+        // Compact panels.
+        for (panel in listOfNotNull(vodPanel, infoBar)) {
+            panel.setPadding(panel.paddingLeft, (20 * d).toInt(), panel.paddingRight, (8 * d).toInt())
+        }
+        playerView.findViewById<TextView>(R.id.vodPanelTitle)?.textSize = 17f
+        chName.textSize = 18f
+        chLogo.layoutParams = chLogo.layoutParams.apply { width = (64 * d).toInt(); height = (40 * d).toInt() }
+        // The button-name line is for TV remotes; on a touch screen it only takes space.
+        actionRows.forEach { it.findViewById<View>(R.id.actLabel)?.visibility = View.GONE }
+
+        val base = listOfNotNull(vodRoot, infoBar, channelPanel, liveCenter).associateWith {
+            intArrayOf(it.paddingLeft, it.paddingTop, it.paddingRight, it.paddingBottom)
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { v, insets ->
+            val bars = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars())
+            val cut = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            val l = maxOf(bars.left, cut.left); val r = maxOf(bars.right, cut.right)
+            val t = maxOf(bars.top, cut.top); val b = maxOf(bars.bottom, cut.bottom)
+            for ((view, p) in base) {
+                val top = if (view === infoBar) p[1] else p[1] + t // the info bar sits at the bottom
+                view.setPadding(p[0] + l, top, p[2] + r, p[3] + b)
+            }
+            ViewCompat.onApplyWindowInsets(v, insets)
+        }
+        ViewCompat.requestApplyInsets(window.decorView)
+    }
+
+    /**
+     * Subtitles normally sit inside the picture's own frame, so with 4:3 / 16:9 / Crop or pinch-zoom they
+     * move with the picture and can end up off screen. Moving them to the full screen keeps them visible
+     * at the bottom of the screen whatever the video size.
+     */
+    private fun keepSubtitlesOnScreen() {
+        val subs = playerView.subtitleView ?: return
+        val parent = subs.parent as? android.view.ViewGroup ?: return
+        if (parent === playerView) return
+        val frame = playerView.findViewById<View>(androidx.media3.ui.R.id.exo_content_frame)
+        parent.removeView(subs)
+        val at = (if (frame != null) playerView.indexOfChild(frame) + 1 else 1).coerceIn(0, playerView.childCount)
+        playerView.addView(subs, at, android.widget.FrameLayout.LayoutParams(
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT))
+    }
+
+    /** Live TV: ⏮ ⏸ ⏭ stay above the info bar on small screens (re-checked whenever either is laid out). */
+    private fun keepLiveCenterAboveInfo() {
+        if (infoBar.visibility != View.VISIBLE || liveCenter.visibility != View.VISIBLE || infoBar.height == 0) return
+        val gap = (8 * resources.displayMetrics.density).toInt()
+        val overlap = liveCenter.bottom - (infoBar.top - gap)
+        liveCenter.translationY = if (overlap > 0) -overlap.toFloat() else 0f
     }
 
     private fun hideSystemBars() {
@@ -467,19 +539,64 @@ class PlayerActivity : BaseActivity() {
 
     private fun subFile(p: Playable) = File(filesDir, "subs/${p.resumeKey}.srt")
 
+    /**
+     * The subtitle list, straight away: Off, every subtitle in the stream (and a downloaded one), then
+     * "Search online" and "Remove downloaded" at the bottom (movies & episodes).
+     */
     private fun subtitleMenu() {
+        val exo = player ?: return
         val p = current
-        val opts = ArrayList<Pair<String, () -> Unit>>()
-        opts += "Choose subtitle track (or Off)" to { trackDialog(C.TRACK_TYPE_TEXT, "Subtitles") }
-        opts += "Search online (OpenSubtitles)" to { searchSubtitles() }
-        if (subFile(p).exists()) opts += "Remove downloaded subtitle" to {
-            subFile(p).delete(); reloadKeepingPosition(); toast("Subtitle removed")
+        val labels = ArrayList<String>()
+        val actions = ArrayList<() -> Unit>()
+        val groups = exo.currentTracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+        val anyOn = groups.any { it.isSelected }
+        labels += (if (!anyOn) "✓  " else "     ") + "Off"
+        actions += {
+            exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+            showGestureInfo("Subtitles off")
+            handler.postDelayed({ updateActions() }, 300)
+        }
+        for (g in groups) for (t in 0 until g.length) {
+            if (!g.isTrackSupported(t)) continue
+            val f = g.getTrackFormat(t)
+            val name = trackName(f, labels.size)
+            labels += (if (g.isTrackSelected(t)) "✓  " else "     ") + name
+            actions += {
+                exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setOverrideForType(androidx.media3.common.TrackSelectionOverride(g.mediaTrackGroup, t)).build()
+                showGestureInfo("Subtitles: $name")
+                handler.postDelayed({ updateActions() }, 300)
+            }
+        }
+        if (!isLive) {
+            labels += "     Search online (OpenSubtitles)…"
+            actions += { searchSubtitles() }
+            if (subFile(p).exists()) {
+                labels += "     Remove downloaded subtitle"
+                actions += { subFile(p).delete(); reloadKeepingPosition(); toast("Subtitle removed") }
+            }
         }
         AlertDialog.Builder(this)
             .setTitle("Subtitles")
-            .setItems(opts.map { it.first }.toTypedArray()) { _, which -> opts[which].second() }
+            .setItems(labels.toTypedArray()) { _, which -> actions[which]() }
             .setNegativeButton("Close", null)
             .show()
+    }
+
+    /** "English", "English – Forced", or the stream's own label. */
+    private fun trackName(f: androidx.media3.common.Format, n: Int): String {
+        val lang = f.language?.takeIf { it.isNotBlank() && it != "und" }?.let { java.util.Locale(it).displayLanguage }
+        val label = f.label?.takeIf { it.isNotBlank() }
+        val forced = (f.selectionFlags and C.SELECTION_FLAG_FORCED) != 0
+        val base = when {
+            label != null && lang != null && !label.contains(lang, true) -> "$lang – $label"
+            label != null -> label
+            lang != null -> lang
+            else -> "Subtitle $n"
+        }
+        return if (forced) "$base (forced)" else base
     }
 
     private fun searchSubtitles() {
@@ -762,7 +879,7 @@ class PlayerActivity : BaseActivity() {
     private fun showInfo(focusButtons: Boolean, controls: Boolean = focusButtons) {
         updateInfoBar()
         infoBar.visibility = View.VISIBLE
-        if (controls && isLive) { updateLivePlayPause(); liveCenter.visibility = View.VISIBLE }
+        if (controls && isLive) { updateLivePlayPause(); liveCenter.visibility = View.VISIBLE; keepLiveCenterAboveInfo() }
         if (focusButtons) findViewById<View>(R.id.liveActions)?.findViewById<View>(R.id.actChannels)?.requestFocus()
         scheduleHideInfo(if (focusButtons) 10_000L else 5_000L)
     }
@@ -890,7 +1007,7 @@ class PlayerActivity : BaseActivity() {
         if (!isLive && exo != null) opts += "Playback speed: ${speedLabel(exo.playbackParameters.speed)}" to { chooseSpeed() }
         opts += "Audio track" to { trackDialog(C.TRACK_TYPE_AUDIO, "Audio track") }
         opts += "Audio sync: ${if (store.audioDelayMs == 0) "0 ms" else "%+d ms".format(store.audioDelayMs)}" to { audioSyncDialog() }
-        opts += "Subtitles" to { if (isLive) trackDialog(C.TRACK_TYPE_TEXT, "Subtitles") else subtitleMenu() }
+        opts += "Subtitles" to { subtitleMenu() }
         opts += "Screen size: ${SettingsActivity.RESIZES.firstOrNull { it.first == store.videoResize }?.second ?: "Fit"}" to { chooseScreenSize() }
         if (zoom > 1.01f) opts += "Reset zoom (${(zoom * 100).roundToInt()}%)" to { zoom = 1f; applyZoom() }
         opts += "Multiview" to { startMultiview() }
@@ -933,7 +1050,7 @@ class PlayerActivity : BaseActivity() {
         on(R.id.actSpeed, { chooseSpeed() })
         on(R.id.actAudio, { trackDialog(C.TRACK_TYPE_AUDIO, "Audio track") })
         on(R.id.actSync, { audioSyncDialog() })
-        on(R.id.actCC, { toggleSubtitles() }, { if (isLive) trackDialog(C.TRACK_TYPE_TEXT, "Subtitles") else subtitleMenu() })
+        on(R.id.actCC, { toggleSubtitles() }, { subtitleMenu() })
         on(R.id.actSize, { nextScreenSize() }, { chooseScreenSize() })
         on(R.id.actMultiview, { startMultiview() })
         on(R.id.actFav, { toggleFavorite() })
@@ -1014,7 +1131,7 @@ class PlayerActivity : BaseActivity() {
             showGestureInfo("Subtitles off")
         } else if (groups.isEmpty()) {
             toast(if (isLive) "No subtitles on this channel"
-                  else "No subtitles in this video. Hold CC (or Settings › Subtitles) to search online.", long = !isLive)
+                  else "No subtitles in this video. Hold CC to search online.", long = !isLive)
         } else {
             val lang = store.subtitleLanguage.ifBlank { java.util.Locale.getDefault().language }
             val g = groups.firstOrNull { it.isSupported && it.getTrackFormat(0).language?.startsWith(lang) == true }
@@ -1096,6 +1213,10 @@ class PlayerActivity : BaseActivity() {
 
     /** Multiview: pick a layout, then this video carries on in the main window. */
     private fun startMultiview() {
+        MvLayouts.warnConnections(this) { pickMultiviewLayout() }
+    }
+
+    private fun pickMultiviewLayout() {
         MvLayouts.pick(this, store.multiviewLayout) { layout ->
             savePosition()
             val pos = if (!isLive) player?.currentPosition ?: 0L else 0L

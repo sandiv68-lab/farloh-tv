@@ -403,7 +403,7 @@ class BrowseActivity : BaseActivity() {
         v.findViewById<TextView>(R.id.name).text = ch.name
         v.findViewById<ImageView>(R.id.logo).loadImage(ch.image)
         v.findViewById<View>(R.id.fav).visibility = if (favKey(ch) in favs) View.VISIBLE else View.GONE
-        v.findViewById<TextView>(R.id.sub).apply {
+        v.findViewById<TextView>(R.id.playlistTag).apply {
             visibility = if (combined) View.VISIBLE else View.GONE
             if (combined) text = playlistName(ch.playlistId)
         }

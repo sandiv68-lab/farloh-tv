@@ -298,6 +298,8 @@ class Store private constructor(context: Context) {
     // ---- Player ----
     /** Audio sync: + = sound later, − = sound earlier, in ms. Kept for all videos (e.g. a soundbar's delay). */
     var audioDelayMs: Int by IntPref("audio_delay_ms", 0)
+    /** Multiview: the connection-limit warning was turned off on this device. */
+    var multiviewWarningOff: Boolean by BoolPref("multiview_warning_off", false)
     /** Last Multiview layout used (0–3; default 2 × 2 grid). */
     var multiviewLayout: Int
         get() = prefs.getInt("multiview_layout", 3).coerceIn(0, 3)
@@ -471,7 +473,7 @@ class Store private constructor(context: Context) {
         /** Stored encrypted with this device's key; exported in plain text inside the (password-protected) backup. */
         private val SECRET_KEYS = setOf(KEY_PLAYLISTS, "subs_password", "subs_api_key")
         /** Per-device screen settings that a restore leaves as they are. */
-        private val DEVICE_KEYS = setOf("device_mode", "ui_zoom", "text_zoom", "orientation", "permissions_asked", "audio_delay_ms", "video_resize")
+        private val DEVICE_KEYS = setOf("device_mode", "ui_zoom", "text_zoom", "orientation", "permissions_asked", "audio_delay_ms", "video_resize", "multiview_warning_off")
 
         fun defaultName(account: Account): String =
             runCatching { android.net.Uri.parse(account.server).host }.getOrNull()?.takeIf { it.isNotBlank() } ?: account.username

@@ -60,6 +60,9 @@ object Dialogs {
                 dialog.dismiss(); onDone(field.text.toString()); true
             } else false
         }
+        // On TV the keyboard covers the bottom half: show the box at the top so the text stays visible.
+        if ((activity as? BaseActivity)?.tvMode == true) dialog.window?.setGravity(android.view.Gravity.TOP)
+        dialog.window?.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         dialog.show()
         field.requestFocus()
     }

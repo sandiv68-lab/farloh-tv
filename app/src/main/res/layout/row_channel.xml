@@ -18,6 +18,12 @@
             android:ellipsize="end" android:singleLine="true" android:textColor="@color/text2" android:textSize="13sp"
             android:visibility="gone" />
     </LinearLayout>
+    <!-- Playlist name (combined playlists) -->
+    <TextView android:id="@+id/playlistTag" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_marginStart="8dp" android:background="@drawable/badge_playlist" android:ellipsize="end"
+        android:maxWidth="160dp" android:paddingStart="10dp" android:paddingTop="3dp" android:paddingEnd="10dp"
+        android:paddingBottom="3dp" android:singleLine="true" android:textColor="@color/accent2" android:textSize="12sp"
+        android:visibility="gone" />
     <ImageView android:id="@+id/fav" android:layout_width="18dp" android:layout_height="18dp"
         android:layout_marginStart="8dp" android:src="@drawable/ic_star" android:tint="@color/accent"
         android:visibility="gone" android:importantForAccessibility="no" />

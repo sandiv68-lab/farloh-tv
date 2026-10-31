@@ -90,7 +90,35 @@ class LoginActivity : BaseActivity() {
             if (actionId == EditorInfo.IME_ACTION_DONE) { signIn.requestFocus(); attempt(); true } else false
         }
         signIn.setOnClickListener { attempt() }
+        keepFieldsAboveKeyboard()
         (if (addMode) playlistName else server).requestFocus()
+    }
+
+    /**
+     * While typing, the field being typed in is moved to the top of the screen, above the keyboard
+     * (TV keyboards cover the bottom half of the screen and often don't make room themselves).
+     */
+    private fun keepFieldsAboveKeyboard() {
+        val scroll = findViewById<android.widget.ScrollView>(R.id.safe)
+        val space = findViewById<View>(R.id.keyboardSpace)
+        val fields = listOf(playlistName, server, username, password)
+        fun bringUp(v: View) {
+            space.layoutParams = space.layoutParams.apply { height = (resources.displayMetrics.heightPixels * 0.6f).toInt() }
+            space.visibility = View.VISIBLE
+            scroll.postDelayed({
+                val r = android.graphics.Rect()
+                v.getDrawingRect(r)
+                scroll.offsetDescendantRectToMyCoords(v, r)
+                scroll.smoothScrollTo(0, (r.top - dp(56)).coerceAtLeast(0)) // a little room for the field above
+            }, 250)
+        }
+        for (f in fields) {
+            f.setOnFocusChangeListener { v, has ->
+                if (has) bringUp(v)
+                else v.post { if (fields.none { it.hasFocus() }) space.visibility = View.GONE }
+            }
+            f.setOnClickListener { bringUp(it) } // keyboard opened again on a field that already had focus
+        }
     }
 
     private fun attempt() {

@@ -53,6 +53,9 @@
                 <TextView android:id="@+id/error" android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:layout_marginTop="12dp" android:textColor="@color/danger" android:textSize="14sp" android:visibility="gone" />
             </LinearLayout>
+
+            <!-- Room to scroll the form up above the on-screen keyboard while typing (TV keyboards cover the bottom half). -->
+            <View android:id="@+id/keyboardSpace" android:layout_width="1dp" android:layout_height="0dp" android:visibility="gone" />
         </LinearLayout>
     </ScrollView>
 </FrameLayout>

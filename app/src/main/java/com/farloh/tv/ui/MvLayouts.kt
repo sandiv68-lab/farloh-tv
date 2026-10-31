@@ -28,7 +28,7 @@ object MvLayouts {
     class Layout(val name: String, val windows: List<Win>)
 
     val ALL: List<Layout> = listOf(
-        Layout("Main + small", listOf(Win(0, 0, 1920, 1080), Win(1496, 824, 384, 216))),
+        Layout("Main + small", listOf(Win(0, 0, 1920, 1080), Win(1464, 806, 416, 234))),
         Layout("2 side by side", listOf(Win(0, 270, 960, 540), Win(960, 270, 960, 540))),
         Layout("1 large + 2", listOf(Win(0, 180, 1280, 720), Win(1280, 180, 640, 360), Win(1280, 540, 640, 360))),
         Layout("2 × 2 grid", listOf(Win(0, 0, 960, 540), Win(960, 0, 960, 540), Win(0, 540, 960, 540), Win(960, 540, 960, 540))),
@@ -59,6 +59,43 @@ object MvLayouts {
             val top = (oy + w.y * scale).roundToInt().toFloat()
             RectF(left, top, right, top + ((right - left) * 9f / 16f).roundToInt())
         }
+    }
+
+    /**
+     * Shown before Multiview starts: each window is one connection to the IPTV account.
+     * "Don't show this again" is remembered on this device.
+     */
+    fun warnConnections(activity: BaseActivity, onContinue: () -> Unit) {
+        val store = activity.store
+        if (store.multiviewWarningOff) { onContinue(); return }
+        val d = activity.resources.displayMetrics.density
+        val check = android.widget.CheckBox(activity).apply {
+            text = "Don't show this again"
+            setTextColor(ContextCompat.getColor(activity, R.color.text2))
+        }
+        val box = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = (24 * d).toInt()
+            setPadding(p, (8 * d).toInt(), p, 0)
+            addView(TextView(activity).apply {
+                text = "Please ensure your IPTV subscription allows the number of simultaneous streams you wish to use. " +
+                    "Exceeding your provider's connection limit may interrupt playback or disconnect your account."
+                textSize = 16f
+                setTextColor(ContextCompat.getColor(activity, R.color.text))
+            })
+            addView(check, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = (12 * d).toInt()
+            })
+        }
+        AlertDialog.Builder(activity)
+            .setTitle("Multiview")
+            .setView(box)
+            .setPositiveButton("Continue") { _, _ ->
+                if (check.isChecked) store.multiviewWarningOff = true
+                onContinue()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     /** The layout chooser: four thumbnails (black with white outlines), 2 × 2, filling the whole box. */
