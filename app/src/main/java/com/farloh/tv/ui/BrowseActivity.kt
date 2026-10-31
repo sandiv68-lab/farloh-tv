@@ -6,6 +6,7 @@ import android.view.KeyEvent
 import android.view.View
 import android.widget.Button
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
@@ -59,7 +60,6 @@ class BrowseActivity : BaseActivity() {
     private val expanded = HashSet<String>()
 
     private lateinit var updated: TextView
-    private lateinit var refreshButton: Button
     private lateinit var refreshing: ProgressBar
     private lateinit var categoryButton: Button
     private lateinit var resultCount: TextView
@@ -117,7 +117,6 @@ class BrowseActivity : BaseActivity() {
         setContentView(R.layout.activity_browse)
         wide = wideLayout
         updated = findViewById(R.id.updated)
-        refreshButton = findViewById(R.id.refresh)
         refreshing = findViewById(R.id.refreshing)
         categoryButton = findViewById(R.id.categoryButton)
         resultCount = findViewById(R.id.resultCount)
@@ -136,8 +135,6 @@ class BrowseActivity : BaseActivity() {
         findViewById<TextView>(R.id.title).text = if (views.size > 1) "${section.title} · ${views.size} playlists" else section.title
         expanded.addAll(store.expandedPlaylists(section))
         findViewById<View>(R.id.back).setOnClickListener { finish() }
-        refreshButton.text = "Refresh"
-        refreshButton.setOnClickListener { refresh() }
         findViewById<Button>(R.id.sortButton).apply {
             visibility = if (section == Section.LIVE) View.GONE else View.VISIBLE
             setOnClickListener { chooseSort() }
@@ -190,9 +187,13 @@ class BrowseActivity : BaseActivity() {
 
     // ---------------- Sorting (Movies / TV Shows) ----------------
 
-    private val sortModes = listOf(
-        "server" to "Default order", "added" to "Recently added", "rating" to "Rating",
-        "az" to "A – Z", "za" to "Z – A", "year" to "Year (newest first)",
+    /** Movies: the date the provider added it. Shows: the date the provider last updated it (e.g. a new episode). */
+    private val sortModes get() = listOf(
+        "server" to "Default order",
+        "added" to if (section == Section.SERIES) "Recently updated by server" else "Recently added by server",
+        "rating" to "Rating",
+        "release" to "Release date (newest first)",
+        "az" to "A – Z", "za" to "Z – A",
     )
 
     private fun sortMode() = store.sortFor(section, currentCat)
@@ -202,15 +203,61 @@ class BrowseActivity : BaseActivity() {
         findViewById<Button>(R.id.sortButton).text = if (sortMode() == "server") "Sort" else "Sort: $label"
     }
 
+    /** One box: first "This category / All categories" at the top, then the sort order. */
     private fun chooseSort() {
-        Dialogs.choose(this, "Sort ${currentCatName()}", sortModes.map { it.second }, sortModes.map { it.first }, sortMode()) { mode ->
-            val name = currentCatName()
-            Dialogs.choose(this, "Use \"${sortModes.first { it.first == mode }.second}\" for", listOf("Just $name", "All categories"),
-                listOf(false, true), false) { all ->
-                store.setSort(section, if (all) null else currentCat, mode)
-                applyFilter(keepScroll = false)
-            }
+        val d = resources.displayMetrics.density
+        val modes = sortModes
+        var all = false
+        lateinit var dialog: androidx.appcompat.app.AlertDialog
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((20 * d).toInt(), (8 * d).toInt(), (20 * d).toInt(), (4 * d).toInt())
         }
+        val scopeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val chips = listOf(false to "This category", true to "All categories").map { (value, label) ->
+            (layoutInflater.inflate(R.layout.tab_chip, scopeRow, false) as TextView).apply {
+                text = label
+                isSelected = value == all
+                scopeRow.addView(this)
+            } to value
+        }
+        chips.forEach { (chip, value) ->
+            chip.setOnClickListener { all = value; chips.forEach { (c, v) -> c.isSelected = v == all } }
+        }
+        box.addView(scopeRow)
+        box.addView(TextView(this).apply {
+            text = "Sort ${currentCatName()} or all categories by:"
+            textSize = 13f
+            setTextColor(ContextCompat.getColor(this@BrowseActivity, R.color.text2))
+            setPadding(0, (10 * d).toInt(), 0, (4 * d).toInt())
+        })
+        val current = sortMode()
+        for ((mode, label) in modes) {
+            box.addView(TextView(this).apply {
+                text = if (mode == current) "●  $label" else "○  $label"
+                textSize = 16f
+                setTextColor(ContextCompat.getColor(this@BrowseActivity, if (mode == current) R.color.accent else R.color.text))
+                setBackgroundResource(R.drawable.focus_bg)
+                isFocusable = true; isClickable = true
+                minHeight = (44 * d).toInt()
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding((12 * d).toInt(), 0, (12 * d).toInt(), 0)
+                setOnClickListener {
+                    dialog.dismiss()
+                    store.setSort(section, if (all) null else currentCat, mode)
+                    applyFilter(keepScroll = false)
+                }
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = (2 * d).toInt()
+            })
+        }
+        dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Sort")
+            .setView(android.widget.ScrollView(this).apply { addView(box) })
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.setOnShowListener { chips.first().first.requestFocus() }
+        dialog.show()
     }
 
     private val collator = java.text.Collator.getInstance().apply { strength = java.text.Collator.PRIMARY }
@@ -218,9 +265,9 @@ class BrowseActivity : BaseActivity() {
     private fun sorted(list: List<CatalogItem>): List<CatalogItem> = when (sortMode()) {
         "added" -> list.sortedByDescending { addedOf(it) }
         "rating" -> list.sortedByDescending { ratingOf(it) }
+        "release" -> list.sortedByDescending { releaseOf(it) }
         "az" -> list.sortedWith { a, b -> collator.compare(a.name, b.name) }
         "za" -> list.sortedWith { a, b -> collator.compare(b.name, a.name) }
-        "year" -> list.sortedByDescending { yearOf(it) }
         else -> list
     }
 
@@ -229,12 +276,23 @@ class BrowseActivity : BaseActivity() {
         return if (r > 10) r / 10 else r
     }
 
+    private val datePattern = Regex("(19[0-9]{2}|20[0-9]{2})(?:[-/.]([01]?[0-9]))?(?:[-/.]([0-3]?[0-9]))?")
     private val yearInName = Regex("\\b(19[0-9]{2}|20[0-9]{2})\\b")
 
-    /** Shows have a year; for movies it's usually in the name, e.g. "Dune (2021)". */
-    private fun yearOf(item: CatalogItem): Int =
-        (item as? Show)?.year?.take(4)?.toIntOrNull()
-            ?: yearInName.findAll(item.name).lastOrNull()?.value?.toIntOrNull() ?: 0
+    /**
+     * Release date as a number (yyyyMMdd) for sorting: the provider's release date when the list has one,
+     * otherwise the year in the name (e.g. "Dune (2021)"); unknown dates go last.
+     */
+    private fun releaseOf(item: CatalogItem): Int {
+        val date = when (item) { is Movie -> item.released; is Show -> item.year; else -> null }
+        datePattern.find(date.orEmpty())?.let { m ->
+            val y = m.groupValues[1].toInt()
+            val mo = m.groupValues[2].toIntOrNull()?.coerceIn(0, 12) ?: 0
+            val day = m.groupValues[3].toIntOrNull()?.coerceIn(0, 31) ?: 0
+            return y * 10000 + mo * 100 + day
+        }
+        return (yearInName.findAll(item.name).lastOrNull()?.value?.toIntOrNull() ?: 0) * 10000
+    }
 
     private fun addedOf(item: CatalogItem): Long = when (item) {
         is Movie -> item.added
@@ -295,29 +353,6 @@ class BrowseActivity : BaseActivity() {
             if (failed.isNotEmpty()) toast(failed.joinToString("\n") { "${it.playlist.name}: ${it.error}" }, long = true)
             render(keepScroll = false)
             focusFirstItem()
-        }
-    }
-
-    private fun refresh() {
-        refreshing.visibility = View.VISIBLE
-        refreshButton.isEnabled = false
-        updated.text = "Refreshing ${section.title}…"
-        lifecycleScope.launch {
-            var total = 0
-            val errors = ArrayList<String>()
-            parts = store.viewPlaylists().map { pl ->
-                try {
-                    Catalog.refresh(this@BrowseActivity, section, pl.id).also { total += it.items.size }.let { Part(pl, it, null) }
-                } catch (e: Exception) {
-                    errors += "${pl.name}: ${Net.friendlyError(e)}"
-                    Part(pl, runCatching { Catalog.load(this@BrowseActivity, section, pl.id) }.getOrNull(), Net.friendlyError(e))
-                }
-            }
-            render(keepScroll = false)
-            if (errors.isEmpty()) toast("${section.title} refreshed: $total items") else toast(errors.joinToString("\n"), long = true)
-            refreshing.visibility = View.GONE
-            refreshButton.isEnabled = true
-            updated.text = updatedText()
         }
     }
 

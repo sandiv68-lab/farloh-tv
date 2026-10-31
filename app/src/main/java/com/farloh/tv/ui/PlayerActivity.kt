@@ -1097,7 +1097,7 @@ class PlayerActivity : BaseActivity() {
         contentFrame()?.apply { scaleX = zoom; scaleY = zoom }
     }
 
-    // ---------------- Video info (Settings → Video info) ----------------
+    // ---------------- Stats for Nerds (Settings → Stats for Nerds) ----------------
 
     private var videoDecoder = ""
     private var audioDecoder = ""
@@ -1162,7 +1162,7 @@ class PlayerActivity : BaseActivity() {
         lines += "Dropped frames: $droppedFrames"
         lines += "Speed: ${speedLabel(exo.playbackParameters.speed)}   •   Audio sync: ${if (store.audioDelayMs == 0) "0 ms" else "%+d ms".format(store.audioDelayMs)}"
         AlertDialog.Builder(this)
-            .setTitle(listOfNotNull(current.subtitle, current.title).joinToString(" – "))
+            .setTitle("Stats for Nerds")
             .setMessage(lines.joinToString("\n"))
             .setPositiveButton("OK", null)
             .show()
@@ -1186,7 +1186,7 @@ class PlayerActivity : BaseActivity() {
             opts += (if (isFav(p)) "★  Remove from Favourites" else "☆  Add to Favourites") to { toggleFavorite() }
         }
         opts += "Open in external" to { openExternal() }
-        opts += "Video info" to { videoInfo() }
+        opts += "Stats for Nerds" to { videoInfo() }
         opts += "Sleep timer: ${if (sleepMinutes > 0) "$sleepMinutes min" else "Off"}" to {
             val mins = listOf(0, 15, 30, 45, 60, 90, 120)
             Dialogs.choose(this, "Sleep timer", mins.map { if (it == 0) "Off" else "$it minutes" }, mins, sleepMinutes) { setSleepTimer(it) }

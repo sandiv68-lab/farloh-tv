@@ -153,6 +153,8 @@ object FocusZoom {
     fun prepare(rv: RecyclerView) {
         if (rv.getTag(R.id.focus_room) != null) return
         rv.setTag(R.id.focus_room, true)
+        // TV: no scroll bar (it flashed as a grey box at the list's edge whenever the list was redrawn, e.g. after hold OK).
+        if ((rv.context as? BaseActivity)?.tvMode == true) rv.isVerticalScrollBarEnabled = false
         val room = (rv.resources.displayMetrics.density * ROOM_DP).toInt()
         rv.clipToPadding = false
         rv.clipChildren = false

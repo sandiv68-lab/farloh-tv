@@ -19,5 +19,5 @@
         android:paddingEnd="8dp" android:paddingBottom="3dp" android:textColor="@color/text" android:textSize="13sp"
         android:visibility="gone" />
     <View android:id="@+id/mvBorder" android:layout_width="match_parent" android:layout_height="match_parent"
-        android:background="@drawable/mv_border" />
+        android:background="@null" />
 </FrameLayout>

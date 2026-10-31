@@ -323,9 +323,11 @@ class Store private constructor(context: Context) {
         set(value) = prefs.edit().putInt("multiview_layout", value).apply()
 
     // ---- Sorting (Movies / TV Shows) ----
-    /** "server", "added", "rating", "az", "za" or "year" – for one category, else the section's default. */
-    fun sortFor(section: Section, category: String): String =
-        prefs.getString("sort_${section.key}_$category", null) ?: prefs.getString("sort_${section.key}", "server") ?: "server"
+    /** "server", "added", "rating", "release", "az" or "za" – for one category, else the section's default. */
+    fun sortFor(section: Section, category: String): String {
+        val m = prefs.getString("sort_${section.key}_$category", null) ?: prefs.getString("sort_${section.key}", "server") ?: "server"
+        return if (m == "year") "release" else m // test build 54 had "Year"
+    }
 
     fun setSort(section: Section, category: String?, mode: String) {
         val e = prefs.edit()

@@ -4,6 +4,10 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
+import androidx.core.content.ContextCompat
+import android.view.inputmethod.InputMethodManager
+import android.view.inputmethod.EditorInfo
+import android.widget.EditText
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.ImageView
@@ -65,11 +69,11 @@ class HomeActivity : BaseActivity() {
         playlistButton.setOnClickListener { showPlaylists() }
         findViewById<View>(R.id.settings).setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
         findViewById<View>(R.id.downloads).setOnClickListener { openDownloads() }
-        findViewById<View>(R.id.homeSearch).setOnClickListener { openSearch(voice = false) }
-        findViewById<View>(R.id.homeMic).apply {
-            visibility = if (Voice.available(this@HomeActivity)) View.VISIBLE else View.GONE
-            setOnClickListener { openSearch(voice = true) }
-        }
+        setupSearch()
+        // Phones: the search box doesn't take the focus (and pop the keyboard up) when the screen opens.
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN or
+            android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN) // while typing, the screen slides up so the box stays visible
+        if (!tvMode) findViewById<View>(R.id.safe).apply { isFocusableInTouchMode = true; requestFocus() }
         findViewById<View>(R.id.refreshAll).setOnClickListener { refreshAll() }
         findViewById<View>(R.id.bell).setOnClickListener { startActivity(Intent(this, NewsActivity::class.java)) }
         findViewById<View>(R.id.bell).visibility = if (com.farloh.tv.data.Feed.configured) View.VISIBLE else View.GONE
@@ -83,6 +87,7 @@ class HomeActivity : BaseActivity() {
         if (tiles.isEmpty()) return
         if (store.account == null) { requireAccount(); return }
         showHeader()
+        showRecentSearches()
         Section.values().forEach { updateTile(it) }
         updateBell()
         checkNews(force = false)
@@ -134,7 +139,7 @@ class HomeActivity : BaseActivity() {
      * Measured after layout because on Android 15 the screen size reported to apps includes the system bars.
      */
     private fun sizeTiles() {
-        val area = findViewById<View>(R.id.homeCenter).parent as View
+        val area = findViewById<View>(R.id.homeArea)
         area.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or, ob ->
             if (r - l != or - ol || b - t != ob - ot) area.post { fitTiles(area) }
         }
@@ -151,8 +156,9 @@ class HomeActivity : BaseActivity() {
         val margin = if (wDp < 560) 8 else 18                    // each side of each tile
         val byWidth = (wDp - 3 * 2 * margin - 8) / 3
         val refreshRow = (14 + 38 * resources.configuration.fontScale).toInt() + 8 // gap + button + focus room
-        val searchBar = 22 + 52 + 6                               // gap + bar + focus room
-        val byHeight = ((hDp - refreshRow - searchBar - 8) / 0.72f).toInt()
+        // The tiles stay in the middle; only on short screens do they shrink to keep clear of the search bar below.
+        val searchBar = 40 + 6 + 32 + 8                            // box + gap + recent chips + room
+        val byHeight = ((hDp - refreshRow - 2 * searchBar - 8) / 0.72f).toInt()
         val tileW = minOf(230, byWidth, byHeight).coerceAtLeast(80)
         if (tileW == lastTileW) return
         lastTileW = tileW
@@ -171,23 +177,64 @@ class HomeActivity : BaseActivity() {
             tile.count.textSize = if (tiny) 11f else 13f
             tile.updated.textSize = if (tiny) 10f else 12f
         }
+        // The search box is as wide as the three tiles.
+        findViewById<View>(R.id.homeSearchBar).layoutParams.width = dp(3 * (tileW + 2 * margin) - 2 * margin)
         area.requestLayout()
     }
 
-    /** Search screen (shows your recent searches); [voice] starts listening straight away. */
-    private fun openSearch(voice: Boolean) {
-        startActivity(Intent(this, SearchActivity::class.java).putExtra(SearchActivity.EXTRA_VOICE, voice))
+    // ---------------- Search bar ----------------
+
+    private val voice by lazy { Voice.register(this) { text -> openResults(text) } }
+
+    private fun setupSearch() {
+        val field = findViewById<EditText>(R.id.homeSearch)
+        field.setOnEditorActionListener { _, actionId, event ->
+            val enter = event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN
+            if (actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_DONE || enter) {
+                val text = field.text.toString().trim()
+                if (text.length < 2) toast("Type at least 2 letters first") else openResults(text)
+                true
+            } else false
+        }
+        // Voice search on phones and tablets only (TV remotes have their own voice keyboard).
+        if (!tvMode) {
+            voice // registered before the screen starts
+            findViewById<View>(R.id.homeMic).apply {
+                visibility = if (Voice.available(this@HomeActivity)) View.VISIBLE else View.GONE
+                setOnClickListener { Voice.listen(this@HomeActivity, voice) }
+            }
+        }
     }
 
-    /** The remote's Search / mic key (when the box passes it to the app): voice search, or the Search screen. */
-    override fun onSearchRequested(): Boolean {
-        openSearch(voice = Voice.available(this))
-        return true
+    /** Recent searches as small chips under the box: one press searches again. */
+    private fun showRecentSearches() {
+        val row = findViewById<LinearLayout>(R.id.homeRecent)
+        row.removeAllViews()
+        val recent = store.searchHistory()
+        findViewById<View>(R.id.homeRecentScroll).visibility = if (recent.isEmpty()) View.GONE else View.VISIBLE
+        for (text in recent) {
+            row.addView(TextView(this).apply {
+                this.text = text
+                textSize = 12f
+                setSingleLine()
+                setTextColor(ContextCompat.getColor(this@HomeActivity, R.color.text2))
+                setBackgroundResource(R.drawable.focus_bg)
+                isFocusable = true; isClickable = true
+                setPadding(dp(12), dp(5), dp(12), dp(5))
+                setOnClickListener { openResults(text) }
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = dp(6)
+            })
+        }
     }
 
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_SEARCH) return onSearchRequested()
-        return super.onKeyDown(keyCode, event)
+    /** Straight to the results (Live TV / Movies / TV Shows / EPG); Back comes home. */
+    private fun openResults(text: String) {
+        val field = findViewById<EditText>(R.id.homeSearch)
+        (getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager)?.hideSoftInputFromWindow(field.windowToken, 0)
+        field.setText("")
+        field.clearFocus()
+        startActivity(Intent(this, SearchActivity::class.java).putExtra(SearchActivity.EXTRA_QUERY, text))
     }
 
     private fun showHeader() {

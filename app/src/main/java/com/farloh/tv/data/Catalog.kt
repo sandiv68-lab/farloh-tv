@@ -197,6 +197,7 @@ object Catalog {
                         rating = m["rating"]?.takeIf { it.isNotBlank() && it != "0" },
                         ext = m["container_extension"].orEmpty(),
                         added = m["added"]?.toLongOrNull() ?: 0L,
+                        released = (m["release_date"] ?: m["releasedate"] ?: m["releaseDate"] ?: m["year"])?.takeIf { it.isNotBlank() },
                         playlistId = playlistId,
                     )
                 )
@@ -210,7 +211,7 @@ object Catalog {
                         image = m["cover"]?.takeIf { it.isNotBlank() },
                         categoryId = m["category_id"].orEmpty(),
                         rating = m["rating"]?.takeIf { it.isNotBlank() && it != "0" },
-                        year = (m["releaseDate"] ?: m["release_date"])?.take(4),
+                        year = (m["releaseDate"] ?: m["release_date"])?.takeIf { it.isNotBlank() },
                         added = m["last_modified"]?.toLongOrNull() ?: 0L,
                         playlistId = playlistId,
                     )
@@ -222,7 +223,8 @@ object Catalog {
     }
 
     private val LIVE_KEYS = setOf("num", "name", "stream_id", "stream_icon", "epg_channel_id", "category_id")
-    private val MOVIE_KEYS = setOf("name", "stream_id", "stream_icon", "rating", "category_id", "container_extension", "added")
+    private val MOVIE_KEYS = setOf("name", "stream_id", "stream_icon", "rating", "category_id", "container_extension", "added",
+        "release_date", "releasedate", "releaseDate", "year")
     private val SERIES_KEYS = setOf("series_id", "name", "cover", "rating", "category_id", "releaseDate", "release_date", "last_modified")
 
     /**

@@ -198,12 +198,13 @@ class MultiviewActivity : BaseActivity() {
 
     private fun updateBorders() {
         slots.forEachIndexed { i, s ->
-            s.border.setBackgroundResource(if (i == selected) R.drawable.mv_border_selected else R.drawable.mv_border)
+            // Only the selected window gets an outline (orange); the others have none.
+            if (i == selected) s.border.setBackgroundResource(R.drawable.mv_border_selected) else s.border.background = null
         }
         showOutlines()
     }
 
-    /** All window outlines fade away after 10 seconds; they come back when you press an arrow or the sound moves. */
+    /** The orange outline fades away after 10 seconds; they come back when you press an arrow or the sound moves. */
     private val fadeOutlines = Runnable {
         slots.forEach { it.border.animate().alpha(0f).setDuration(600).start() }
     }

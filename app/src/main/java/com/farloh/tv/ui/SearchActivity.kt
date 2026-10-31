@@ -41,8 +41,8 @@ import kotlinx.coroutines.withContext
 class SearchActivity : BaseActivity() {
 
     companion object {
-        /** Start voice search as soon as the screen opens (the mic on the home screen). */
-        const val EXTRA_VOICE = "voice"
+        /** Search for this straight away (typed on the home screen). */
+        const val EXTRA_QUERY = "query"
         private const val LIMIT = 1000
         private const val GUIDE = "guide"
         /** The saved guide covers about 36 hours ahead, so fetch it again after this. */
@@ -163,8 +163,9 @@ class SearchActivity : BaseActivity() {
 
         findViewById<View>(R.id.back).setOnClickListener { finish() }
         findViewById<View>(R.id.go).setOnClickListener { search() }
+        // Voice search on phones and tablets only (TV remotes have their own voice keyboard).
         findViewById<View>(R.id.mic).apply {
-            visibility = if (Voice.available(this@SearchActivity)) View.VISIBLE else View.GONE
+            visibility = if (!tvMode && Voice.available(this@SearchActivity)) View.VISIBLE else View.GONE
             setOnClickListener { Voice.listen(this@SearchActivity, voice) }
         }
         for ((key, tab) in tabViews) tab.setOnClickListener { show(key) }
@@ -218,13 +219,11 @@ class SearchActivity : BaseActivity() {
         updateTabs()
         show(shown)
         query.requestFocus()
-        if (savedInstanceState == null && intent.getBooleanExtra(EXTRA_VOICE, false)) Voice.listen(this, voice)
-    }
-
-    /** The remote's Search / mic key (when the box passes it to the app) starts voice search. */
-    override fun onSearchRequested(): Boolean {
-        if (Voice.available(this)) Voice.listen(this, voice) else query.requestFocus()
-        return true
+        intent.getStringExtra(EXTRA_QUERY)?.takeIf { savedInstanceState == null && it.isNotBlank() }?.let { text ->
+            query.setText(text)
+            query.setSelection(text.length)
+            search()
+        }
     }
 
     /** Before the first search: the recent searches (if any). */
@@ -557,10 +556,6 @@ class SearchActivity : BaseActivity() {
 
     /** MENU key on a remote opens the options of the focused result. */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.keyCode == KeyEvent.KEYCODE_SEARCH) {
-            if (event.action == KeyEvent.ACTION_UP) onSearchRequested()
-            return true
-        }
         if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_MENU) {
             val holder = currentFocus?.let { resultsRv.findContainingViewHolder(it) }
             val pos = holder?.bindingAdapterPosition ?: RecyclerView.NO_POSITION

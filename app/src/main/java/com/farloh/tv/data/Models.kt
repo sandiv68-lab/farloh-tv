@@ -78,6 +78,8 @@ data class Movie(
     val rating: String?,
     val ext: String,
     val added: Long = 0L,
+    /** Release date ("2021-10-22") or year, when the provider's list has one. */
+    val released: String? = null,
     override val playlistId: String = "",
 ) : CatalogItem
 
@@ -87,6 +89,7 @@ data class Show(
     override val image: String?,
     override val categoryId: String,
     val rating: String?,
+    /** First air date ("2019-11-12") or year, from the provider's list. */
     val year: String?,
     val added: Long = 0L,
     override val playlistId: String = "",
