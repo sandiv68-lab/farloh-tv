@@ -1005,6 +1005,25 @@ class PlayerActivity : BaseActivity() {
         scheduleHideInfo(10_000L)
     }
 
+    /** OK on the guide box: the programme's details. */
+    private fun programmeDetails(p: Programme) {
+        val now = p.isNow()
+        val day = if (android.text.format.DateUtils.isToday(p.start)) "Today" else Fmt.date(p.start)
+        val msg = buildString {
+            append("$day, ${Fmt.time(this@PlayerActivity, p.start)} – ${Fmt.time(this@PlayerActivity, p.end)}")
+            append("  (${(p.end - p.start) / 60_000} min)")
+            if (now) append("\nOn now – ${p.progress() / 10}% done")
+            else if (p.start > System.currentTimeMillis()) append("\nStarts in ${Fmt.duration(p.start - System.currentTimeMillis())}")
+            if (p.description.isNotBlank()) append("\n\n").append(p.description)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(p.title.ifBlank { current.title })
+            .setMessage(msg)
+            .setPositiveButton("OK", null)
+            .show()
+        scheduleHideInfo(10_000L)
+    }
+
     private fun renderNowNext() {
         val list = guideList()
         val nowMs = System.currentTimeMillis()
