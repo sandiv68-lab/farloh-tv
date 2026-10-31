@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Hide & arrange groups: ✓ = shown, ▲ ▼ = move. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="2dp"
+    android:gravity="center_vertical" android:orientation="horizontal">
+    <CheckBox android:id="@+id/gShown" android:layout_width="0dp" android:layout_height="wrap_content"
+        android:layout_weight="1" android:background="@drawable/focus_bg" android:buttonTint="@color/accent"
+        android:ellipsize="end" android:minHeight="46dp" android:paddingStart="8dp" android:paddingEnd="8dp"
+        android:singleLine="true" android:textColor="@color/text" android:textSize="15sp" />
+    <ImageButton android:id="@+id/gUp" style="@style/IconBtn" android:layout_width="44dp" android:layout_height="44dp"
+        android:layout_marginStart="6dp" android:padding="10dp" android:src="@drawable/ic_arrow_up"
+        android:contentDescription="Move up" />
+    <ImageButton android:id="@+id/gDown" style="@style/IconBtn" android:layout_width="44dp" android:layout_height="44dp"
+        android:layout_marginStart="4dp" android:padding="10dp" android:src="@drawable/ic_arrow_down"
+        android:contentDescription="Move down" />
+</LinearLayout>

@@ -138,6 +138,10 @@ class BrowseActivity : BaseActivity() {
         findViewById<View>(R.id.back).setOnClickListener { finish() }
         refreshButton.text = "Refresh"
         refreshButton.setOnClickListener { refresh() }
+        findViewById<Button>(R.id.sortButton).apply {
+            visibility = if (section == Section.LIVE) View.GONE else View.VISIBLE
+            setOnClickListener { chooseSort() }
+        }
 
         // Categories: side column on TVs/tablets, a picker button on phones.
         categoriesRv.visibility = if (wide) View.VISIBLE else View.GONE
@@ -184,6 +188,54 @@ class BrowseActivity : BaseActivity() {
         ).joinToString(",")
     } + "|${store.recentLimit}|${store.historyLimit}"
 
+    // ---------------- Sorting (Movies / TV Shows) ----------------
+
+    private val sortModes = listOf(
+        "server" to "Default order", "added" to "Recently added", "rating" to "Rating",
+        "az" to "A – Z", "za" to "Z – A", "year" to "Year (newest first)",
+    )
+
+    private fun sortMode() = store.sortFor(section, currentCat)
+
+    private fun updateSortButton() {
+        val label = sortModes.firstOrNull { it.first == sortMode() }?.second ?: "Default order"
+        findViewById<Button>(R.id.sortButton).text = if (sortMode() == "server") "Sort" else "Sort: $label"
+    }
+
+    private fun chooseSort() {
+        Dialogs.choose(this, "Sort ${currentCatName()}", sortModes.map { it.second }, sortModes.map { it.first }, sortMode()) { mode ->
+            val name = currentCatName()
+            Dialogs.choose(this, "Use \"${sortModes.first { it.first == mode }.second}\" for", listOf("Just $name", "All categories"),
+                listOf(false, true), false) { all ->
+                store.setSort(section, if (all) null else currentCat, mode)
+                applyFilter(keepScroll = false)
+            }
+        }
+    }
+
+    private val collator = java.text.Collator.getInstance().apply { strength = java.text.Collator.PRIMARY }
+
+    private fun sorted(list: List<CatalogItem>): List<CatalogItem> = when (sortMode()) {
+        "added" -> list.sortedByDescending { addedOf(it) }
+        "rating" -> list.sortedByDescending { ratingOf(it) }
+        "az" -> list.sortedWith { a, b -> collator.compare(a.name, b.name) }
+        "za" -> list.sortedWith { a, b -> collator.compare(b.name, a.name) }
+        "year" -> list.sortedByDescending { yearOf(it) }
+        else -> list
+    }
+
+    private fun ratingOf(item: CatalogItem): Double {
+        val r = when (item) { is Movie -> item.rating; is Show -> item.rating; else -> null }?.toDoubleOrNull() ?: return -1.0
+        return if (r > 10) r / 10 else r
+    }
+
+    private val yearInName = Regex("\\b(19[0-9]{2}|20[0-9]{2})\\b")
+
+    /** Shows have a year; for movies it's usually in the name, e.g. "Dune (2021)". */
+    private fun yearOf(item: CatalogItem): Int =
+        (item as? Show)?.year?.take(4)?.toIntOrNull()
+            ?: yearInName.findAll(item.name).lastOrNull()?.value?.toIntOrNull() ?: 0
+
     private fun addedOf(item: CatalogItem): Long = when (item) {
         is Movie -> item.added
         is Show -> item.added
@@ -196,7 +248,12 @@ class BrowseActivity : BaseActivity() {
             itemsRv.layoutManager = LinearLayoutManager(this)
             itemAdapter = SimpleAdapter<CatalogItem>(R.layout.row_channel, 1.02f) { v, item, _ -> bindChannel(v, item as LiveChannel) }
             itemAdapter.onClick = { _, pos -> playChannel(pos, external = null) }
-            itemAdapter.onLongClick = { item, pos -> channelOptions(item as LiveChannel, pos) }
+            // TV: hold OK = Favourite (the guide already shows beside the list). Phones: a short menu,
+            // because a touch screen has no "selected" channel to show the guide for.
+            itemAdapter.onLongClick = { item, pos ->
+                if (tvMode) { quickFavorite(this, section, item); render(keepScroll = true) }
+                else channelOptions(item as LiveChannel, pos)
+            }
             itemAdapter.onFocus = { item, _ ->
                 if (wide) {
                     epgJob?.cancel()
@@ -316,7 +373,7 @@ class BrowseActivity : BaseActivity() {
                 if (pid !in expanded) continue
             }
             if (d == null) continue
-            for (c in d.categories) {
+            for (c in store.ordered(section, pid, d.categories)) {
                 if (c.id in hid) continue
                 val n = d.byCategory[c.id]?.size ?: 0
                 if (n > 0) rows.add(CatRow("$pid|${c.id}", c.name, n, playlistId = pid))
@@ -336,9 +393,10 @@ class BrowseActivity : BaseActivity() {
             currentCat == RECENT -> recent
             else -> byCategory[currentCat].orEmpty()
         }
-        itemAdapter.submit(list)
+        itemAdapter.submit(if (section == Section.LIVE) list else sorted(list))
         if (!keepScroll) itemsRv.scrollToPosition(0)
         val catName = currentCatName()
+        updateSortButton()
         categoryButton.text = catName
         resultCount.text = when (section) {
             Section.LIVE -> Fmt.count(list.size, "channel", "channels")
@@ -347,7 +405,7 @@ class BrowseActivity : BaseActivity() {
         }
         if (list.isEmpty()) {
             empty.text = when {
-                currentCat == FAV -> "No favourites yet.\nHold OK (or long-press) on an item and choose Add to Favourites."
+                currentCat == FAV -> "No favourites yet.\nHold OK (or long-press) on an item to add it."
                 currentCat == RECENT && section == Section.LIVE -> "Channels you watch will appear here."
                 currentCat == RECENT -> "Nothing recently added."
                 visible.isEmpty() -> "The server returned an empty list.\nPress Refresh to try again."
@@ -428,23 +486,17 @@ class BrowseActivity : BaseActivity() {
     private fun channelOptions(ch: LiveChannel, position: Int) {
         val isFav = favKey(ch) in favs
         val options = arrayOf(
-            "Play",
-            "Open in external",
             if (isFav) "Remove from Favourites" else "Add to Favourites",
             "TV Guide",
+            "Open in external",
         )
         AlertDialog.Builder(this)
             .setTitle(ch.name)
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> playChannel(position, external = false)
-                    1 -> playChannel(position, external = true)
-                    2 -> {
-                        val added = store.toggleFavorite(ch.id, section, ch.playlistId)
-                        toast(if (added) "Added to Favourites" else "Removed from Favourites")
-                        render(keepScroll = true)
-                    }
-                    3 -> if (wide) showGuide(ch) else guideDialog(ch)
+                    0 -> { store.toggleFavorite(ch.id, section, ch.playlistId); render(keepScroll = true) }
+                    1 -> if (wide) showGuide(ch) else guideDialog(ch)
+                    2 -> playChannel(position, external = true)
                 }
             }
             .show()

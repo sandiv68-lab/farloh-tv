@@ -67,6 +67,9 @@
             <TextView android:id="@+id/clock" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_marginStart="16dp" android:textColor="@color/text" android:textSize="20sp" />
         </LinearLayout>
+        <!-- The guide: earlier ◀ NOW ▶ later programmes. Up from the buttons reaches it; OK = details. -->
+        <androidx.recyclerview.widget.RecyclerView android:id="@+id/guideStrip" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:layout_marginTop="6dp" android:visibility="gone" />
         <include android:id="@+id/liveActions" layout="@layout/player_actions" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:layout_marginTop="4dp" />
     </LinearLayout>

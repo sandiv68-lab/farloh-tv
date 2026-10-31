@@ -19,6 +19,8 @@
                 android:drawablePadding="10dp" android:hint="Channel, movie, show or programme name"
                 android:imeOptions="actionSearch|flagNoExtractUi" android:inputType="text"
                 android:paddingTop="10dp" android:paddingBottom="10dp" />
+            <ImageButton android:id="@+id/mic" style="@style/IconBtn" android:layout_marginStart="8dp"
+                android:src="@drawable/ic_mic" android:contentDescription="Voice search" />
             <Button android:id="@+id/go" style="@style/Btn.Primary" android:layout_marginStart="8dp" android:text="Search" />
         </LinearLayout>
 

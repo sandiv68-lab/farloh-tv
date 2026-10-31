@@ -82,7 +82,7 @@ class MvPicker(
             if (recent.isNotEmpty()) rows += "Recently watched  (${recent.size})" to { chooseItem(pl, sec, "Recently watched", recent, again) }
         }
         rows += "All  (${visible.size})" to { chooseItem(pl, sec, "All ${sec.title}", visible, again) }
-        for (c in data.categories) {
+        for (c in store.ordered(sec, pl.id, data.categories)) {
             if (c.id in hidden) continue
             val list = data.byCategory[c.id].orEmpty()
             if (list.isNotEmpty()) rows += "${c.name}  (${list.size})" to { chooseItem(pl, sec, c.name, list, again) }

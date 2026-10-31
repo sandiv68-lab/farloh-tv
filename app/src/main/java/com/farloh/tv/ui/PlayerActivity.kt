@@ -101,6 +101,9 @@ class PlayerActivity : BaseActivity() {
     private lateinit var infoBar: View
     /** Live TV: ⏮ ⏪ ▶/⏸ ⏩ ⏭ in the middle of the screen. */
     private lateinit var liveCenter: View
+    /** Live TV: the channel's guide (earlier and later programmes) above the button bar. */
+    private lateinit var guideStrip: RecyclerView
+    private var guideFor: String? = null
     private lateinit var livePlayPause: ImageView
     private lateinit var chLogo: ImageView
     private lateinit var chName: TextView
@@ -172,6 +175,12 @@ class PlayerActivity : BaseActivity() {
         vodTitle = playerView.findViewById(R.id.vodPanelTitle) ?: findViewById(R.id.vodTitle)
         infoBar = findViewById(R.id.infoBar)
         liveCenter = findViewById(R.id.liveCenter)
+        guideStrip = findViewById(R.id.guideStrip)
+        guideStrip.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        guideStrip.itemAnimator = null
+        guideStrip.adapter = guideStripAdapter
+        guideStripAdapter.onClick = { p, _ -> programmeDetails(p) }
+        guideStripAdapter.onFocus = { _, _ -> scheduleHideInfo(10_000L) }
         livePlayPause = findViewById(R.id.livePlayPause)
         findViewById<View>(R.id.livePrev).setOnClickListener { switchTo(index - 1); showInfo(focusButtons = false, controls = true) }
         findViewById<View>(R.id.liveNext).setOnClickListener { switchTo(index + 1); showInfo(focusButtons = false, controls = true) }
@@ -374,6 +383,7 @@ class PlayerActivity : BaseActivity() {
         val exo = PlayerFactory.build(this, delay)
         exo.trackSelectionParameters = subtitlePreferences(exo)
         exo.addListener(listener)
+        exo.addAnalyticsListener(stats)
         exo.playWhenReady = true
         playerView.player = queuePlayer(exo)
         player = exo
@@ -707,6 +717,7 @@ class PlayerActivity : BaseActivity() {
 
     private fun playCurrent(resume: Boolean) {
         val exo = player ?: return
+        videoDecoder = ""; audioDecoder = ""; droppedFrames = 0
         val p = current
         retries = 0
         handler.removeCallbacks(reconnectRunnable)
@@ -903,8 +914,6 @@ class PlayerActivity : BaseActivity() {
         val (sec, id) = favTarget(current) ?: return
         val added = store.toggleFavorite(id, sec, current.playlistId)
         favs = loadFavs()
-        val what = when (current.kind) { Kind.LIVE -> "Channel"; Kind.MOVIE -> "Movie"; Kind.EPISODE -> "TV show" }
-        toast(if (added) "$what added to Favourites" else "$what removed from Favourites")
         updateInfoBar()
         updateActions()
     }
@@ -914,6 +923,10 @@ class PlayerActivity : BaseActivity() {
         updateInfoBar()
         infoBar.visibility = View.VISIBLE
         if (controls && isLive) { updateLivePlayPause(); liveCenter.visibility = View.VISIBLE; keepLiveCenterAboveInfo() }
+        if (isLive && guideStripAdapter.items.isNotEmpty() && !guideStrip.hasFocus()) {
+            guideStripAdapter.notifyDataSetChanged() // "NOW" moves on as time passes
+            scrollGuideToNow(focus = false)
+        }
         if (focusButtons) findViewById<View>(R.id.liveActions)?.findViewById<View>(R.id.actChannels)?.requestFocus()
         scheduleHideInfo(if (focusButtons) 10_000L else 5_000L)
     }
@@ -956,13 +969,66 @@ class PlayerActivity : BaseActivity() {
         val p = current
         val acc = store.accountFor(p.playlistId) ?: account ?: return
         epgJob?.cancel()
+        if (guideFor != p.id) { guideStripAdapter.submit(emptyList()); guideStrip.visibility = View.GONE }
         epgJob = lifecycleScope.launch {
             val list = runCatching { Xtream.epg(acc, p.id, full = false) }.getOrDefault(emptyList())
             if (items.isNotEmpty() && current.id == p.id) {
                 nowNext = list
                 renderNowNext()
             }
+            // The day's guide for the strip (falls back to now/next).
+            val day = runCatching { Xtream.epg(acc, p.id, full = true) }.getOrDefault(emptyList()).ifEmpty { list }
+            if (items.isNotEmpty() && current.id == p.id) {
+                guideFor = p.id
+                guideStripAdapter.submit(day)
+                guideStrip.visibility = if (day.isEmpty()) View.GONE else View.VISIBLE
+                nextTitle.visibility = if (day.isEmpty()) View.VISIBLE else View.GONE // the strip shows what's next
+                scrollGuideToNow(focus = false)
+            }
         }
+    }
+
+    private val guideStripAdapter = SimpleAdapter<Programme>(R.layout.guide_chip, 1.04f) { v, p, _ ->
+        val now = p.isNow()
+        val day = when {
+            android.text.format.DateUtils.isToday(p.start) -> ""
+            p.start > System.currentTimeMillis() -> "  (tomorrow)"
+            else -> "  (yesterday)"
+        }
+        v.findViewById<TextView>(R.id.gTime).apply {
+            text = (if (now) "NOW   " else "") + "${Fmt.time(this@PlayerActivity, p.start)} – ${Fmt.time(this@PlayerActivity, p.end)}$day"
+            setTextColor(androidx.core.content.ContextCompat.getColor(this@PlayerActivity, if (now) R.color.accent else R.color.accent2))
+        }
+        v.findViewById<TextView>(R.id.gTitle).text = p.title.ifBlank { "No title" }
+    }
+
+    /** Shows the programme on now (first in view); [focus] also moves the remote's selection to it. */
+    private fun scrollGuideToNow(focus: Boolean) {
+        val list = guideStripAdapter.items
+        if (list.isEmpty()) return
+        val i = list.indexOfFirst { it.isNow() }.let { if (it >= 0) it else list.indexOfFirst { p -> p.start > System.currentTimeMillis() }.coerceAtLeast(0) }
+        val lm = guideStrip.layoutManager as LinearLayoutManager
+        lm.scrollToPositionWithOffset(i, 0)
+        if (focus) focusWhenReady(guideStrip, i)
+    }
+
+    /** OK on a programme in the guide: its details. */
+    private fun programmeDetails(p: Programme) {
+        val now = p.isNow()
+        val day = if (android.text.format.DateUtils.isToday(p.start)) "Today" else Fmt.date(p.start)
+        val msg = buildString {
+            append("$day, ${Fmt.time(this@PlayerActivity, p.start)} – ${Fmt.time(this@PlayerActivity, p.end)}")
+            append("  (${(p.end - p.start) / 60_000} min)")
+            if (now) append("\nOn now – ${p.progress() / 10}% done")
+            else if (p.start > System.currentTimeMillis()) append("\nStarts in ${Fmt.duration(p.start - System.currentTimeMillis())}")
+            if (p.description.isNotBlank()) append("\n\n").append(p.description)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(p.title.ifBlank { current.title })
+            .setMessage(msg)
+            .setPositiveButton("OK", null)
+            .show()
+        scheduleHideInfo(10_000L)
     }
 
     private fun renderNowNext() {
@@ -1031,6 +1097,77 @@ class PlayerActivity : BaseActivity() {
         contentFrame()?.apply { scaleX = zoom; scaleY = zoom }
     }
 
+    // ---------------- Video info (Settings → Video info) ----------------
+
+    private var videoDecoder = ""
+    private var audioDecoder = ""
+    private var droppedFrames = 0L
+    private var bandwidth = 0L
+
+    private val stats = object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+        override fun onVideoDecoderInitialized(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, name: String, a: Long, b: Long) { videoDecoder = name }
+        override fun onAudioDecoderInitialized(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, name: String, a: Long, b: Long) { audioDecoder = name }
+        override fun onDroppedVideoFrames(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, count: Int, ms: Long) { droppedFrames += count }
+        override fun onBandwidthEstimate(t: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, loadMs: Int, bytes: Long, bitrate: Long) { bandwidth = bitrate }
+    }
+
+    private fun codecName(mime: String?): String = when (mime) {
+        null -> "?"
+        MimeTypes.VIDEO_H264 -> "H.264 (AVC)"
+        MimeTypes.VIDEO_H265 -> "H.265 (HEVC)"
+        MimeTypes.VIDEO_MPEG2 -> "MPEG-2"
+        MimeTypes.VIDEO_VP9 -> "VP9"
+        MimeTypes.VIDEO_AV1 -> "AV1"
+        MimeTypes.AUDIO_AAC -> "AAC"
+        MimeTypes.AUDIO_AC3 -> "Dolby Digital (AC3)"
+        MimeTypes.AUDIO_E_AC3, MimeTypes.AUDIO_E_AC3_JOC -> "Dolby Digital Plus (E-AC3)"
+        MimeTypes.AUDIO_DTS, MimeTypes.AUDIO_DTS_HD -> "DTS"
+        MimeTypes.AUDIO_TRUEHD -> "Dolby TrueHD"
+        MimeTypes.AUDIO_MPEG, MimeTypes.AUDIO_MPEG_L2 -> "MPEG audio (MP2/MP3)"
+        MimeTypes.AUDIO_OPUS -> "Opus"
+        else -> mime.substringAfter('/')
+    }
+
+    private fun kbps(bits: Int) = if (bits >= 1_000_000) String.format(java.util.Locale.US, "%.1f Mbit/s", bits / 1e6) else "${bits / 1000} kbit/s"
+
+    private fun videoInfo() {
+        val exo = player ?: return
+        val v = exo.videoFormat
+        val a = exo.audioFormat
+        val lines = ArrayList<String>()
+        if (v != null) {
+            lines += "Video: ${codecName(v.sampleMimeType)}"
+            lines += "Size: ${v.width} × ${v.height}" + when {
+                v.height >= 2000 -> "  (4K)"; v.height >= 1000 -> "  (Full HD)"; v.height >= 700 -> "  (HD)"; else -> "  (SD)"
+            }
+            if (v.frameRate > 0) lines += "Frame rate: ${String.format(java.util.Locale.US, "%.2f", v.frameRate)} fps"
+            if (v.bitrate > 0) lines += "Video bitrate: ${kbps(v.bitrate)}"
+            if (videoDecoder.isNotEmpty()) lines += "Video decoder: $videoDecoder"
+            if (v.colorInfo?.colorTransfer == C.COLOR_TRANSFER_ST2084 || v.colorInfo?.colorTransfer == C.COLOR_TRANSFER_HLG) lines += "HDR: yes"
+        } else lines += "Video: –"
+        lines += ""
+        if (a != null) {
+            lines += "Audio: ${codecName(a.sampleMimeType)}"
+            val ch = a.channelCount
+            if (ch > 0) lines += "Channels: " + when { ch > 2 -> "${ch - 1}.1"; ch == 2 -> "Stereo"; else -> "Mono" }
+            if (a.sampleRate > 0) lines += "Sample rate: ${a.sampleRate / 1000.0} kHz"
+            if (a.bitrate > 0) lines += "Audio bitrate: ${kbps(a.bitrate)}"
+            a.language?.takeIf { it.isNotBlank() && it != "und" }?.let { lines += "Language: ${java.util.Locale(it).displayLanguage}" }
+            if (audioDecoder.isNotEmpty()) lines += "Audio decoder: $audioDecoder"
+        } else lines += "Audio: –"
+        lines += ""
+        val buffered = (exo.bufferedPosition - exo.currentPosition).coerceAtLeast(0)
+        lines += "Buffered ahead: ${buffered / 1000} s"
+        if (bandwidth > 0) lines += "Connection speed: ${kbps(bandwidth.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())}"
+        lines += "Dropped frames: $droppedFrames"
+        lines += "Speed: ${speedLabel(exo.playbackParameters.speed)}   •   Audio sync: ${if (store.audioDelayMs == 0) "0 ms" else "%+d ms".format(store.audioDelayMs)}"
+        AlertDialog.Builder(this)
+            .setTitle(listOfNotNull(current.subtitle, current.title).joinToString(" – "))
+            .setMessage(lines.joinToString("\n"))
+            .setPositiveButton("OK", null)
+            .show()
+    }
+
     /** Settings button: the bar's options (by name) plus the extras. */
     private fun videoMenu() {
         val exo = player
@@ -1049,6 +1186,7 @@ class PlayerActivity : BaseActivity() {
             opts += (if (isFav(p)) "★  Remove from Favourites" else "☆  Add to Favourites") to { toggleFavorite() }
         }
         opts += "Open in external" to { openExternal() }
+        opts += "Video info" to { videoInfo() }
         opts += "Sleep timer: ${if (sleepMinutes > 0) "$sleepMinutes min" else "Off"}" to {
             val mins = listOf(0, 15, 30, 45, 60, 90, 120)
             Dialogs.choose(this, "Sleep timer", mins.map { if (it == 0) "Off" else "$it minutes" }, mins, sleepMinutes) { setSleepTimer(it) }
@@ -1563,9 +1701,29 @@ class PlayerActivity : BaseActivity() {
         }
         if (infoBar.visibility == View.VISIBLE && (infoBar.hasFocus() || liveCenter.hasFocus())) {
             if (code == KeyEvent.KEYCODE_BACK) { hideInfo(); return true }
-            // Up from the button bar goes to ⏮ ▶ ⏭ (if shown); Up from there closes the overlay.
-            if (code == KeyEvent.KEYCODE_DPAD_UP && (liveCenter.hasFocus() || liveCenter.visibility != View.VISIBLE)) { hideInfo(); return true }
             scheduleHideInfo(10_000L)
+            // Up / Down: buttons ↔ guide ↔ ⏮ ⏸ ⏭ (Up from the top closes the overlay).
+            val inGuide = guideStrip.hasFocus()
+            val inCenter = liveCenter.hasFocus()
+            val hasGuide = guideStrip.visibility == View.VISIBLE && guideStripAdapter.items.isNotEmpty()
+            val hasCenter = liveCenter.visibility == View.VISIBLE
+            if (code == KeyEvent.KEYCODE_DPAD_UP) {
+                when {
+                    inCenter -> hideInfo()
+                    inGuide -> if (hasCenter) livePlayPause.requestFocus() else hideInfo()
+                    hasGuide -> scrollGuideToNow(focus = true)
+                    hasCenter -> livePlayPause.requestFocus()
+                    else -> hideInfo()
+                }
+                return true
+            }
+            if (code == KeyEvent.KEYCODE_DPAD_DOWN) {
+                when {
+                    inCenter && hasGuide -> scrollGuideToNow(focus = true)
+                    inCenter || inGuide -> findViewById<View>(R.id.liveActions)?.findViewById<View>(R.id.actChannels)?.requestFocus()
+                }
+                return true
+            }
             return super.dispatchKeyEvent(event)
         }
 

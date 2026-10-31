@@ -41,6 +41,8 @@ import kotlinx.coroutines.withContext
 class SearchActivity : BaseActivity() {
 
     companion object {
+        /** Start voice search as soon as the screen opens (the mic on the home screen). */
+        const val EXTRA_VOICE = "voice"
         private const val LIMIT = 1000
         private const val GUIDE = "guide"
         /** The saved guide covers about 36 hours ahead, so fetch it again after this. */
@@ -74,6 +76,11 @@ class SearchActivity : BaseActivity() {
     /** Favourite keys: "playlistId|section|itemId" (several playlists in the combined view). */
     private var favs: Set<String> = emptySet()
     private val views by lazy { store.viewPlaylists() }
+    private val voice = Voice.register(this) { text ->
+        query.setText(text)
+        query.setSelection(text.length)
+        search()
+    }
     private val combined get() = views.size > 1
 
     private fun favKey(sec: Section, item: CatalogItem) = "${item.playlistId}|${sec.name}|${item.id}"
@@ -156,6 +163,10 @@ class SearchActivity : BaseActivity() {
 
         findViewById<View>(R.id.back).setOnClickListener { finish() }
         findViewById<View>(R.id.go).setOnClickListener { search() }
+        findViewById<View>(R.id.mic).apply {
+            visibility = if (Voice.available(this@SearchActivity)) View.VISIBLE else View.GONE
+            setOnClickListener { Voice.listen(this@SearchActivity, voice) }
+        }
         for ((key, tab) in tabViews) tab.setOnClickListener { show(key) }
         guideAction.setOnClickListener { downloadGuide() }
 
@@ -169,7 +180,12 @@ class SearchActivity : BaseActivity() {
         }
 
         channelAdapter.onClick = { _, pos -> playChannel(pos, external = false) }
-        channelAdapter.onLongClick = { item, pos -> options(item, pos) }
+        // Hold OK / long-press = Favourite (Menu key = more options).
+        channelAdapter.onLongClick = { item, _ ->
+            quickFavorite(this, Section.LIVE, item)
+            favs = loadFavs()
+            channelAdapter.notifyDataSetChanged()
+        }
         posterAdapter.onClick = { item, _ -> openItemDetails(this, item) }
         // Hold OK / long-press = Favourite (Menu key = more options).
         posterAdapter.onLongClick = { item, _ ->
@@ -202,6 +218,13 @@ class SearchActivity : BaseActivity() {
         updateTabs()
         show(shown)
         query.requestFocus()
+        if (savedInstanceState == null && intent.getBooleanExtra(EXTRA_VOICE, false)) Voice.listen(this, voice)
+    }
+
+    /** The remote's Search / mic key (when the box passes it to the app) starts voice search. */
+    override fun onSearchRequested(): Boolean {
+        if (Voice.available(this)) Voice.listen(this, voice) else query.requestFocus()
+        return true
     }
 
     /** Before the first search: the recent searches (if any). */
@@ -534,6 +557,10 @@ class SearchActivity : BaseActivity() {
 
     /** MENU key on a remote opens the options of the focused result. */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_SEARCH) {
+            if (event.action == KeyEvent.ACTION_UP) onSearchRequested()
+            return true
+        }
         if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_MENU) {
             val holder = currentFocus?.let { resultsRv.findContainingViewHolder(it) }
             val pos = holder?.bindingAdapterPosition ?: RecyclerView.NO_POSITION

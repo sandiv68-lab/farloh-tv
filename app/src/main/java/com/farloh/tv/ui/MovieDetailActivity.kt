@@ -71,7 +71,6 @@ class MovieDetailActivity : BaseActivity() {
         findViewById<View>(R.id.external).setOnClickListener { Launcher.play(this, listOf(bestPlayable()), 0, external = true) }
         findViewById<ImageView>(R.id.fav).setOnClickListener {
             val added = store.toggleFavorite(id, com.farloh.tv.data.Section.MOVIES, pid)
-            toast(if (added) "Added to Favourites" else "Removed from Favourites")
             updateFav()
         }
         updateFav()

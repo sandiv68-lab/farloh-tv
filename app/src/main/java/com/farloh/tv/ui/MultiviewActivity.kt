@@ -200,6 +200,18 @@ class MultiviewActivity : BaseActivity() {
         slots.forEachIndexed { i, s ->
             s.border.setBackgroundResource(if (i == selected) R.drawable.mv_border_selected else R.drawable.mv_border)
         }
+        showOutlines()
+    }
+
+    /** All window outlines fade away after 10 seconds; they come back when you press an arrow or the sound moves. */
+    private val fadeOutlines = Runnable {
+        slots.forEach { it.border.animate().alpha(0f).setDuration(600).start() }
+    }
+
+    private fun showOutlines() {
+        handler.removeCallbacks(fadeOutlines)
+        slots.forEach { it.border.animate().cancel(); it.border.alpha = 1f }
+        handler.postDelayed(fadeOutlines, 10_000)
     }
 
     /**
@@ -459,10 +471,10 @@ class MultiviewActivity : BaseActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action != KeyEvent.ACTION_DOWN) return super.dispatchKeyEvent(event)
         when (event.keyCode) {
-            KeyEvent.KEYCODE_DPAD_LEFT -> { move(-1, 0); return true }
-            KeyEvent.KEYCODE_DPAD_RIGHT -> { move(1, 0); return true }
-            KeyEvent.KEYCODE_DPAD_UP -> { move(0, -1); return true }
-            KeyEvent.KEYCODE_DPAD_DOWN -> { move(0, 1); return true }
+            KeyEvent.KEYCODE_DPAD_LEFT -> { showOutlines(); move(-1, 0); return true }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> { showOutlines(); move(1, 0); return true }
+            KeyEvent.KEYCODE_DPAD_UP -> { showOutlines(); move(0, -1); return true }
+            KeyEvent.KEYCODE_DPAD_DOWN -> { showOutlines(); move(0, 1); return true }
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
                 if (event.repeatCount == 0) options(selected)
                 return true

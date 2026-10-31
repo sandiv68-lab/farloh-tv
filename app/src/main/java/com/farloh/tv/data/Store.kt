@@ -246,6 +246,23 @@ class Store private constructor(context: Context) {
     fun setHiddenCategories(section: Section, ids: Set<String>) =
         prefs.edit().putStringSet(k("hidden_${section.key}"), HashSet(ids)).apply()
 
+    /** Your own order of the categories (Settings → Parental control → Hide & arrange groups); empty = server order. */
+    fun categoryOrder(section: Section, pid: String? = null): List<String> = runCatching {
+        val a = JSONArray(prefs.getString(k("order_${section.key}", pid), "[]"))
+        (0 until a.length()).map { a.getString(it) }
+    }.getOrDefault(emptyList())
+
+    fun setCategoryOrder(section: Section, ids: List<String>) =
+        prefs.edit().putString(k("order_${section.key}"), JSONArray(ids).toString()).apply()
+
+    /** [cats] in your order; categories you haven't placed (e.g. new ones) follow in the server's order. */
+    fun ordered(section: Section, pid: String?, cats: List<Category>): List<Category> {
+        val order = categoryOrder(section, pid)
+        if (order.isEmpty()) return cats
+        val rank = order.withIndex().associate { it.value to it.index }
+        return cats.withIndex().sortedBy { (i, c) -> rank[c.id]?.toLong() ?: (order.size.toLong() + i) }.map { it.value }
+    }
+
     fun savePosition(key: String, positionMs: Long, durationMs: Long, pid: String? = null) {
         prefs.edit().putLong(k("pos_$key", pid), positionMs).putLong(k("dur_$key", pid), durationMs).apply()
     }
@@ -304,6 +321,21 @@ class Store private constructor(context: Context) {
     var multiviewLayout: Int
         get() = prefs.getInt("multiview_layout", 3).coerceIn(0, 3)
         set(value) = prefs.edit().putInt("multiview_layout", value).apply()
+
+    // ---- Sorting (Movies / TV Shows) ----
+    /** "server", "added", "rating", "az", "za" or "year" – for one category, else the section's default. */
+    fun sortFor(section: Section, category: String): String =
+        prefs.getString("sort_${section.key}_$category", null) ?: prefs.getString("sort_${section.key}", "server") ?: "server"
+
+    fun setSort(section: Section, category: String?, mode: String) {
+        val e = prefs.edit()
+        if (category == null) {
+            // All categories: the new default, and per-category choices are cleared.
+            e.putString("sort_${section.key}", mode)
+            prefs.all.keys.filter { it.startsWith("sort_${section.key}_") }.forEach { e.remove(it) }
+        } else e.putString("sort_${section.key}_$category", mode)
+        e.apply()
+    }
 
     // ---- Search history (all playlists) ----
     /** How many recent searches are kept: 5 (default), 10 or 20. */

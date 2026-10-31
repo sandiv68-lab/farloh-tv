@@ -62,7 +62,6 @@ class SeriesDetailActivity : BaseActivity() {
         findViewById<View>(R.id.back).setOnClickListener { finish() }
         findViewById<ImageView>(R.id.fav).setOnClickListener {
             val added = store.toggleFavorite(seriesId, com.farloh.tv.data.Section.SERIES, pid)
-            toast(if (added) "Added to Favourites" else "Removed from Favourites")
             updateFav()
         }
         updateFav()

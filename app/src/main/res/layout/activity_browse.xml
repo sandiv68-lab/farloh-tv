@@ -23,6 +23,8 @@
                 android:layout_marginEnd="12dp" android:textColor="@color/text2" android:textSize="13sp" />
             <ProgressBar android:id="@+id/refreshing" android:layout_width="28dp" android:layout_height="28dp"
                 android:layout_marginEnd="10dp" android:visibility="gone" />
+            <Button android:id="@+id/sortButton" style="@style/Btn" android:layout_marginEnd="8dp" android:singleLine="true"
+                android:text="Sort" android:visibility="gone" />
             <Button android:id="@+id/refresh" style="@style/Btn" android:drawableStart="@drawable/ic_refresh"
                 android:drawablePadding="8dp" android:text="Refresh" />
         </LinearLayout>

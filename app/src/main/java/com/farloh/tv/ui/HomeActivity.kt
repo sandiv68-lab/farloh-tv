@@ -2,6 +2,7 @@ package com.farloh.tv.ui
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -64,7 +65,11 @@ class HomeActivity : BaseActivity() {
         playlistButton.setOnClickListener { showPlaylists() }
         findViewById<View>(R.id.settings).setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
         findViewById<View>(R.id.downloads).setOnClickListener { openDownloads() }
-        findViewById<View>(R.id.search).setOnClickListener { startActivity(Intent(this, SearchActivity::class.java)) }
+        findViewById<View>(R.id.homeSearch).setOnClickListener { openSearch(voice = false) }
+        findViewById<View>(R.id.homeMic).apply {
+            visibility = if (Voice.available(this@HomeActivity)) View.VISIBLE else View.GONE
+            setOnClickListener { openSearch(voice = true) }
+        }
         findViewById<View>(R.id.refreshAll).setOnClickListener { refreshAll() }
         findViewById<View>(R.id.bell).setOnClickListener { startActivity(Intent(this, NewsActivity::class.java)) }
         findViewById<View>(R.id.bell).visibility = if (com.farloh.tv.data.Feed.configured) View.VISIBLE else View.GONE
@@ -129,7 +134,7 @@ class HomeActivity : BaseActivity() {
      * Measured after layout because on Android 15 the screen size reported to apps includes the system bars.
      */
     private fun sizeTiles() {
-        val area = findViewById<View>(R.id.tiles).parent as View
+        val area = findViewById<View>(R.id.homeCenter).parent as View
         area.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or, ob ->
             if (r - l != or - ol || b - t != ob - ot) area.post { fitTiles(area) }
         }
@@ -146,7 +151,8 @@ class HomeActivity : BaseActivity() {
         val margin = if (wDp < 560) 8 else 18                    // each side of each tile
         val byWidth = (wDp - 3 * 2 * margin - 8) / 3
         val refreshRow = (14 + 38 * resources.configuration.fontScale).toInt() + 8 // gap + button + focus room
-        val byHeight = ((hDp - refreshRow - 8) / 0.72f).toInt()
+        val searchBar = 22 + 52 + 6                               // gap + bar + focus room
+        val byHeight = ((hDp - refreshRow - searchBar - 8) / 0.72f).toInt()
         val tileW = minOf(230, byWidth, byHeight).coerceAtLeast(80)
         if (tileW == lastTileW) return
         lastTileW = tileW
@@ -166,6 +172,22 @@ class HomeActivity : BaseActivity() {
             tile.updated.textSize = if (tiny) 10f else 12f
         }
         area.requestLayout()
+    }
+
+    /** Search screen (shows your recent searches); [voice] starts listening straight away. */
+    private fun openSearch(voice: Boolean) {
+        startActivity(Intent(this, SearchActivity::class.java).putExtra(SearchActivity.EXTRA_VOICE, voice))
+    }
+
+    /** The remote's Search / mic key (when the box passes it to the app): voice search, or the Search screen. */
+    override fun onSearchRequested(): Boolean {
+        openSearch(voice = Voice.available(this))
+        return true
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_SEARCH) return onSearchRequested()
+        return super.onKeyDown(keyCode, event)
     }
 
     private fun showHeader() {
