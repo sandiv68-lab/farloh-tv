@@ -14,6 +14,12 @@
         tools:ignore="ScopedStorage" />
     <!-- Android 13+: notifications for new versions and messages. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Recordings: run in the background at the set time, keep the device awake while recording. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- Works on Android TV / Fire TV (remote) as well as phones and tablets (touch). -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -72,6 +78,17 @@
         <activity android:name=".ui.HomeActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
         <activity android:name=".ui.SettingsActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
         <activity android:name=".ui.DownloadsActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
+
+        <!-- Recordings -->
+        <service android:name=".record.RecordService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <receiver android:name=".record.RecordAlarmReceiver" android:exported="false" />
+        <receiver android:name=".record.RecordBootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
         <!-- "Open with Farloh TV" for backup files in file managers -->
         <activity
             android:name=".ui.OpenBackupActivity"

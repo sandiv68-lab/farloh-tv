@@ -328,6 +328,52 @@ class SettingsActivity : BaseActivity() {
                 .show()
         }
 
+        r += Row.Header("Recordings", "recordings", R.drawable.ic_record,
+            "${store.recPadBeforeMin} min early, ${store.recPadAfterMin} min late • ${if (store.recQuality == "low") "480p" else "default quality"}")
+        r += Row.Item("Scheduled & recorded", "${com.farloh.tv.data.Recordings.schedules(this).size} set up",
+            "Set up new recordings, see what's recorded (also in Downloads → Recordings)") {
+            startActivity(android.content.Intent(this, DownloadsActivity::class.java)
+                .putExtra(DownloadsActivity.EXTRA_TAB, DownloadsActivity.TAB_RECORDINGS))
+        }
+        r += Row.Item("Start early", "${store.recPadBeforeMin} min", "In case the programme starts before the guide says") {
+            val v = listOf(0, 1, 2, 5, 10)
+            Dialogs.choose(this, "Start recordings early by", v.map { if (it == 0) "No extra time" else "$it minutes" }, v, store.recPadBeforeMin) {
+                store.recPadBeforeMin = it; com.farloh.tv.record.RecordScheduler.reschedule(this); refresh()
+            }
+        }
+        r += Row.Item("End late", "${store.recPadAfterMin} min", "In case the programme runs over") {
+            val v = listOf(0, 2, 5, 10, 15, 30)
+            Dialogs.choose(this, "Keep recording after the end for", v.map { if (it == 0) "No extra time" else "$it minutes" }, v, store.recPadAfterMin) {
+                store.recPadAfterMin = it; com.farloh.tv.record.RecordScheduler.reschedule(this); refresh()
+            }
+        }
+        r += Row.Item("Quality for new recordings", if (store.recQuality == "low") "Low (480p)" else "Default",
+            "Low makes a smaller 480p copy after the recording ends (takes a while on TV boxes)") {
+            Dialogs.choose(this, "Quality", listOf("Default (as broadcast)", "Low (480p)"), listOf("default", "low"), store.recQuality) {
+                store.recQuality = it; refresh()
+            }
+        }
+        val locations = com.farloh.tv.data.Recordings.locations(this)
+        val current = com.farloh.tv.data.Recordings.folder(this)
+        r += Row.Item("Save recordings to", locations.firstOrNull { it.second.path == current?.path }?.first ?: "Device storage",
+            if (locations.size > 1) "A USB drive or SD card can be chosen" else "Plug in a USB drive to save recordings there") {
+            val labels = locations.map { (name, dir) ->
+                val free = android.text.format.Formatter.formatShortFileSize(this, com.farloh.tv.data.Recordings.freeSpace(dir.parentFile ?: dir))
+                "$name  ($free free)"
+            }
+            Dialogs.choose(this, "Save recordings to", labels, locations.map { it.second.path }, current?.path ?: "") { path ->
+                store.recFolder = if (path == locations.firstOrNull()?.second?.path) "" else path
+                refresh()
+            }
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            val exact = com.farloh.tv.record.RecordScheduler.canExact(this)
+            r += Row.Item("Start recordings on time", if (exact) "Allowed" else "Not allowed",
+                "Android's \"Alarms & reminders\" permission, so recordings start exactly on time") {
+                if (exact) toast("Already allowed") else RecordUi.openAlarmSettings(this)
+            }
+        }
+
         r += Row.Header("Parental control", "parental", R.drawable.ic_lock,
             "PIN ${if (store.hasPin) "on" else "off"} • ${Section.values().sumOf { store.hiddenCategories(it).size }} group(s) hidden")
         for (s in Section.values()) {

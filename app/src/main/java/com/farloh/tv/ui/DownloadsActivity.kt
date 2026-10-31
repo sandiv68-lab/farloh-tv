@@ -19,9 +19,33 @@ import com.farloh.tv.data.DownloadStatus
 import com.farloh.tv.data.Downloads
 import com.farloh.tv.player.Kind
 import com.farloh.tv.player.Launcher
+import com.farloh.tv.player.Playable
+import com.farloh.tv.data.RecFile
+import com.farloh.tv.data.RecSchedule
+import com.farloh.tv.data.Recordings
+import com.farloh.tv.record.RecordScheduler
+import android.net.Uri
 
-/** Movies and episodes saved for offline viewing. Works without an internet connection. */
+/**
+ * Movies and episodes saved for offline viewing (works without an internet connection), and Live TV
+ * recordings: set up, being made, and finished.
+ */
 class DownloadsActivity : BaseActivity() {
+
+    companion object {
+        const val EXTRA_TAB = "tab"
+        const val TAB_RECORDINGS = "recordings"
+    }
+
+    /** One line on the Recordings tab. */
+    private sealed class RecRow {
+        object New : RecRow()
+        class Scheduled(val s: RecSchedule, val next: Long?) : RecRow()
+        class File(val f: RecFile) : RecRow()
+    }
+
+    private var showRecordings = false
+    private val recAdapter = SimpleAdapter<RecRow>(R.layout.row_download, 1.02f) { v, r, _ -> bindRec(v, r) }
 
     private lateinit var list: RecyclerView
     private lateinit var empty: TextView
@@ -34,7 +58,7 @@ class DownloadsActivity : BaseActivity() {
     private val poll = object : Runnable {
         override fun run() {
             reload()
-            val active = statuses.values.any { it.state == DownloadState.RUNNING || it.state == DownloadState.QUEUED || it.state == DownloadState.PAUSED }
+            val active = showRecordings || statuses.values.any { it.state == DownloadState.RUNNING || it.state == DownloadState.QUEUED || it.state == DownloadState.PAUSED }
             handler.postDelayed(this, if (active) 1500L else 5000L)
         }
     }
@@ -51,6 +75,19 @@ class DownloadsActivity : BaseActivity() {
         list.adapter = adapter
         adapter.onClick = { e, _ -> open(e) }
         adapter.onLongClick = { e, _ -> options(e) }
+        recAdapter.onClick = { r, _ -> openRec(r) }
+        recAdapter.onLongClick = { r, _ -> recOptions(r) }
+        findViewById<View>(R.id.tabDownloads).setOnClickListener { setTab(false) }
+        findViewById<View>(R.id.tabRecordings).setOnClickListener { setTab(true) }
+        setTab(intent.getStringExtra(EXTRA_TAB) == TAB_RECORDINGS)
+    }
+
+    private fun setTab(recordings: Boolean) {
+        showRecordings = recordings
+        findViewById<View>(R.id.tabDownloads).isSelected = !recordings
+        findViewById<View>(R.id.tabRecordings).isSelected = recordings
+        list.adapter = if (recordings) recAdapter else adapter
+        reload()
     }
 
     override fun onResume() {
@@ -65,6 +102,8 @@ class DownloadsActivity : BaseActivity() {
     }
 
     private fun reload() {
+        if (showRecordings) { reloadRecordings(); return }
+        empty.text = "No downloads yet.\n\nOpen a movie and press Download, or hold OK on an episode."
         val entries = Downloads.list(this).sortedByDescending { it.added }
         statuses = Downloads.status(this, entries)
         if (entries.map { it.key } == adapter.items.map { it.key }) {
@@ -140,11 +179,146 @@ class DownloadsActivity : BaseActivity() {
             .show()
     }
 
+    // ---------------- Recordings ----------------
+
+    private fun reloadRecordings() {
+        val rows = ArrayList<RecRow>()
+        rows += RecRow.New
+        val files = Recordings.files(this)
+        files.filter { it.state == "recording" || it.state == "converting" }.sortedBy { it.end }.forEach { rows += RecRow.File(it) }
+        Recordings.schedules(this)
+            .map { it to RecordScheduler.upcoming(this, it) }
+            .filter { (s, next) -> next != null && files.none { f -> f.scheduleId == s.id && f.occurrence == next && f.state == "recording" } }
+            .sortedBy { it.second }
+            .forEach { (s, next) -> rows += RecRow.Scheduled(s, next) }
+        files.filter { it.state == "done" || it.state == "failed" }.sortedByDescending { it.start }.forEach { rows += RecRow.File(it) }
+        val sameRows = rows.size == recAdapter.items.size && rows.zip(recAdapter.items).all { (a, b) -> key(a) == key(b) }
+        if (sameRows) recAdapter.notifyItemRangeChanged(0, rows.size) else recAdapter.submit(rows)
+        empty.visibility = View.GONE
+        space.text = Recordings.folder(this)?.let { "${Formatter.formatShortFileSize(this, Recordings.freeSpace(it))} free" } ?: ""
+    }
+
+    private fun key(r: RecRow) = when (r) {
+        RecRow.New -> "new"
+        is RecRow.Scheduled -> "s:${r.s.id}:${r.next}"
+        is RecRow.File -> "f:${r.f.id}:${r.f.state}"
+    }
+
+    private fun bindRec(v: View, r: RecRow) {
+        val poster = v.findViewById<ImageView>(R.id.poster)
+        val title = v.findViewById<TextView>(R.id.title)
+        val show = v.findViewById<TextView>(R.id.show)
+        val status = v.findViewById<TextView>(R.id.status)
+        val bar = v.findViewById<ProgressBar>(R.id.progress)
+        bar.visibility = View.GONE
+        when (r) {
+            RecRow.New -> {
+                poster.setImageResource(R.drawable.ic_record)
+                title.text = "＋  New recording…"
+                show.text = "Choose a channel, the day and the time (once, every day or every week)"
+                status.text = "Or: OK on a programme in the TV guide → Record, or Record in the player's Settings"
+            }
+            is RecRow.Scheduled -> {
+                val s = r.s
+                poster.loadImage(s.logo)
+                title.text = s.title
+                show.text = s.channelName
+                val next = r.next
+                status.text = listOfNotNull(
+                    next?.let { "⏰ " + RecordUi.whenLabel(this, it, it + s.durationMs) },
+                    if (s.repeats) RecordUi.repeatLabel(s.days) else null,
+                    if (s.quality == "low") "480p" else null,
+                ).joinToString("  •  ")
+            }
+            is RecRow.File -> {
+                val f = r.f
+                poster.loadImage(f.logo)
+                title.text = f.title
+                show.text = "${f.channelName}  •  ${RecordUi.whenLabel(this, f.start, f.end)}"
+                val size = java.io.File(f.path).length()
+                val sz = Formatter.formatShortFileSize(this, size)
+                status.text = when (f.state) {
+                    "recording" -> {
+                        bar.visibility = View.VISIBLE
+                        val total = (f.end - f.start).coerceAtLeast(1)
+                        bar.progress = (((System.currentTimeMillis() - f.start) * 100) / total).toInt().coerceIn(0, 100)
+                        "● Recording  •  $sz  •  until ${Fmt.time(this, f.end)}"
+                    }
+                    "converting" -> "Making the 480p copy…  •  $sz"
+                    "done" -> "✓ Recorded  •  $sz" + (if (f.notes.isNotBlank()) "  •  ${f.notes}" else "")
+                    else -> "✗ Not recorded" + (if (f.notes.isNotBlank()) "  •  ${f.notes}" else "")
+                }
+            }
+        }
+    }
+
+    private fun playRecording(f: RecFile, external: Boolean) {
+        val file = java.io.File(f.path)
+        if (!file.exists()) { toast("File not found"); return }
+        val p = Playable(Kind.MOVIE, "rec_${f.id}", f.title, Uri.fromFile(file).toString(), f.logo,
+            subtitle = f.channelName, searchTitle = f.title, playlistId = f.playlistId)
+        Launcher.play(this, listOf(p), 0, external = external)
+    }
+
+    private fun openRec(r: RecRow) {
+        when (r) {
+            RecRow.New -> RecordUi.manual(this) { reload() }
+            is RecRow.Scheduled -> recOptions(r)
+            is RecRow.File -> if (r.f.state == "done") playRecording(r.f, external = false) else recOptions(r)
+        }
+    }
+
+    private fun recOptions(r: RecRow) {
+        val opts = ArrayList<Pair<String, () -> Unit>>()
+        val title: String
+        when (r) {
+            RecRow.New -> { RecordUi.manual(this) { reload() }; return }
+            is RecRow.Scheduled -> {
+                val s = r.s
+                title = s.title
+                opts += "Change…" to { RecordUi.editSchedule(this, s) { reload() } }
+                if (s.repeats && r.next != null) opts += "Skip the next one only" to {
+                    // Marks that showing as handled, so the following one is next.
+                    Recordings.saveFile(this, RecFile(scheduleId = s.id, occurrence = r.next, channelId = s.channelId,
+                        channelName = s.channelName, logo = s.logo, playlistId = s.playlistId, title = s.title,
+                        start = r.next, end = r.next + s.durationMs, path = "", state = "skipped"))
+                    RecordScheduler.reschedule(this); reload()
+                }
+                opts += (if (s.repeats) "Delete this repeating recording" else "Cancel this recording") to {
+                    Recordings.removeSchedule(this, s.id); RecordScheduler.reschedule(this); reload(); toast("Cancelled")
+                }
+            }
+            is RecRow.File -> {
+                val f = r.f
+                title = f.title
+                if (f.state == "recording") {
+                    opts += "Watch from the start" to { playRecording(f, external = false) }
+                    opts += "■  Stop recording" to { RecordScheduler.stop(this, f.id); toast("Stopping…"); handler.postDelayed({ reload() }, 1500) }
+                } else if (f.state == "done") {
+                    opts += "Play" to { playRecording(f, external = false) }
+                    opts += "Open in external" to { playRecording(f, external = true) }
+                }
+                if (f.state != "recording" && f.state != "converting") opts += "Delete" to {
+                    Dialogs.confirm(this, "Delete ${f.title}?", "The recording will be removed from this device.", "Delete") {
+                        Recordings.deleteFile(this, f); reload()
+                    }
+                }
+            }
+        }
+        if (opts.isEmpty()) return
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setItems(opts.map { it.first }.toTypedArray()) { _, which -> opts[which].second() }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_MENU) {
             val holder = currentFocus?.let { list.findContainingViewHolder(it) }
             val pos = holder?.bindingAdapterPosition ?: RecyclerView.NO_POSITION
-            if (pos != RecyclerView.NO_POSITION && pos < adapter.items.size) { options(adapter.items[pos]); return true }
+            if (showRecordings && pos != RecyclerView.NO_POSITION && pos < recAdapter.items.size) { recOptions(recAdapter.items[pos]); return true }
+            if (!showRecordings && pos != RecyclerView.NO_POSITION && pos < adapter.items.size) { options(adapter.items[pos]); return true }
         }
         return super.dispatchKeyEvent(event)
     }

@@ -71,6 +71,8 @@ class HomeActivity : BaseActivity() {
         tiles.getValue(Section.LIVE).card.requestFocus()
 
         if (store.viewPlaylists().any { !store.isLoaded(it.id) }) firstLoad()
+        // Recordings: set the next alarm (and start any that should be recording now).
+        runCatching { com.farloh.tv.record.RecordScheduler.reschedule(this) }
     }
 
     override fun onResume() {

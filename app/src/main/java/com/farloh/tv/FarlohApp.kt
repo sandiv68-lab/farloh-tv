@@ -23,6 +23,8 @@ class FarlohApp : Application(), ImageLoaderFactory {
         cacheDir.resolve("updates").deleteRecursively()
         // Version 1.0 kept lists directly in files/catalog; they now live in one folder per playlist.
         filesDir.resolve("catalog").listFiles()?.filter { it.isFile }?.forEach { it.delete() }
+        // Recordings that were running when the app or device was closed are kept as they are (stopped early).
+        runCatching { com.farloh.tv.data.Recordings.markInterrupted(this, com.farloh.tv.record.RecordService.runningIds) }
         // Clean-up of leftovers and things not used for a month (Settings → Storage).
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             kotlinx.coroutines.delay(15_000) // not while the app is starting up

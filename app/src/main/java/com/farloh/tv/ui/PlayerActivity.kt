@@ -1093,7 +1093,7 @@ class PlayerActivity : BaseActivity() {
     /** What the ★ button saves: the channel, the movie, or the episode's TV show. */
     private fun favTarget(p: Playable): Pair<com.farloh.tv.data.Section, String>? = when (p.kind) {
         Kind.LIVE -> com.farloh.tv.data.Section.LIVE to p.id
-        Kind.MOVIE -> com.farloh.tv.data.Section.MOVIES to p.id
+        Kind.MOVIE -> if (p.id.startsWith("rec_")) null else com.farloh.tv.data.Section.MOVIES to p.id // recordings: no ★
         Kind.EPISODE -> p.seriesId?.let { com.farloh.tv.data.Section.SERIES to it }
     }
 
@@ -1148,7 +1148,8 @@ class PlayerActivity : BaseActivity() {
 
     private fun updateInfoBar() {
         val p = current
-        chName.text = listOfNotNull(p.num?.takeIf { it.isNotBlank() }, p.title).joinToString("   ")
+        chName.text = listOfNotNull(p.num?.takeIf { it.isNotBlank() }, p.title).joinToString("   ") +
+            if (p.kind == Kind.LIVE && com.farloh.tv.record.RecordService.isRecording(p.id)) "   ● REC" else ""
         chLogo.loadImage(p.logo)
         updateActions()
         clock.text = Fmt.time(this, System.currentTimeMillis())
@@ -1211,11 +1212,13 @@ class PlayerActivity : BaseActivity() {
             else if (p.start > System.currentTimeMillis()) append("\nStarts in ${Fmt.duration(p.start - System.currentTimeMillis())}")
             if (p.description.isNotBlank()) append("\n\n").append(p.description)
         }
-        AlertDialog.Builder(this)
+        val b = AlertDialog.Builder(this)
             .setTitle(p.title.ifBlank { current.title })
             .setMessage(msg)
             .setPositiveButton("OK", null)
-            .show()
+        // Programmes that haven't finished can be recorded (once, or every day / week).
+        if (isLive && p.end > System.currentTimeMillis()) b.setNeutralButton("● Record") { _, _ -> RecordUi.fromProgramme(this, current, p) }
+        b.show()
         scheduleHideInfo(10_000L)
     }
 
@@ -1392,6 +1395,9 @@ class PlayerActivity : BaseActivity() {
         opts += "Screen size: ${SettingsActivity.RESIZES.firstOrNull { it.first == store.videoResize }?.second ?: "Fit"}" to { chooseScreenSize() }
         if (zoom > 1.01f) opts += "Reset zoom (${(zoom * 100).roundToInt()}%)" to { zoom = 1f; applyZoom() }
         opts += "Multiview" to { startMultiview() }
+        if (isLive) opts += (if (com.farloh.tv.record.RecordService.isRecording(p.id)) "Record (● recording now)" else "Record") to {
+            RecordUi.playerMenu(this, p, guideList().firstOrNull { it.isNow() })
+        }
         if (favTarget(p) != null) {
             opts += (if (isFav(p)) "★  Remove from Favourites" else "☆  Add to Favourites") to { toggleFavorite() }
         }

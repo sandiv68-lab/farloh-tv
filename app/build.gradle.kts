@@ -91,6 +91,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:$media3")
     implementation("androidx.media3:media3-ui:$media3")
     implementation("androidx.media3:media3-datasource-okhttp:$media3")
+    implementation("androidx.media3:media3-transformer:$media3") // recordings: the 480p copy
+    implementation("androidx.media3:media3-effect:$media3")
     // FFmpeg software audio decoders (AC3, E-AC3, DTS, TrueHD...) for the HW+ / SW decoder modes.
     implementation("org.jellyfin.media3:media3-ffmpeg-decoder:$media3+1")
     implementation("io.coil-kt:coil:2.7.0")

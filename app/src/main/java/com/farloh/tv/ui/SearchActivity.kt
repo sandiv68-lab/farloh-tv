@@ -10,6 +10,7 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
@@ -196,7 +197,23 @@ class SearchActivity : BaseActivity() {
         }
         guideAdapter.onClick = { hit, _ -> openGuideHit(hit) }
         guideAdapter.onLongClick = { hit, _ ->
-            ItemOptions.show(this, Section.LIVE, hit.channel, accountOf(hit.channel), playLive = { ext -> playGuideChannel(hit, ext) })
+            val p = hit.programme
+            if (p.end > System.currentTimeMillis()) {
+                AlertDialog.Builder(this).setTitle(p.title)
+                    .setItems(arrayOf("●  Record this programme", "Channel options…")) { _, which ->
+                        if (which == 0) {
+                            val ch = hit.channel
+                            val playable = Playable(Kind.LIVE, ch.id, ch.name, accountOf(ch).liveUrl(ch.id, store.liveFormat), ch.image, ch.num,
+                                playlistId = ch.playlistId)
+                            RecordUi.fromProgramme(this, playable, com.farloh.tv.data.Programme(p.title, "", p.start, p.end))
+                        } else {
+                            ItemOptions.show(this, Section.LIVE, hit.channel, accountOf(hit.channel), playLive = { ext -> playGuideChannel(hit, ext) })
+                        }
+                    }
+                    .setNegativeButton("Close", null).show()
+            } else {
+                ItemOptions.show(this, Section.LIVE, hit.channel, accountOf(hit.channel), playLive = { ext -> playGuideChannel(hit, ext) })
+            }
         }
 
         historyAdapter.onClick = { text, _ ->

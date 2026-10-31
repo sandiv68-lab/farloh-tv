@@ -13,11 +13,20 @@
             <ImageButton android:id="@+id/back" style="@style/IconBtn" android:src="@drawable/ic_back"
                 android:contentDescription="Back" />
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:layout_marginStart="10dp" android:text="Downloads" android:textColor="@color/text"
+                android:layout_marginStart="10dp" android:text="Downloads &amp; recordings" android:textColor="@color/text"
                 android:textSize="22sp" android:textStyle="bold" />
             <TextView android:id="@+id/space" android:layout_width="0dp" android:layout_height="wrap_content"
                 android:layout_weight="1" android:layout_marginStart="12dp" android:gravity="end"
                 android:textColor="@color/text2" android:textSize="13sp" />
+        </LinearLayout>
+        <!-- Downloads | Recordings -->
+        <LinearLayout android:id="@+id/tabs" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" android:orientation="horizontal" android:paddingStart="4dp">
+            <TextView android:id="@+id/tabDownloads" style="@style/Tab" android:background="@drawable/tab_choice_bg"
+                android:textColor="@color/tab_choice_text" android:text="Downloads" android:textStyle="bold" />
+            <TextView android:id="@+id/tabRecordings" style="@style/Tab" android:layout_marginStart="8dp"
+                android:background="@drawable/tab_choice_bg" android:textColor="@color/tab_choice_text"
+                android:text="Recordings" android:textStyle="bold" />
         </LinearLayout>
         <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent" android:layout_marginTop="8dp">
             <androidx.recyclerview.widget.RecyclerView android:id="@+id/list" android:layout_width="match_parent"

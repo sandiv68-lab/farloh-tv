@@ -28,6 +28,8 @@ class MvPicker(
     private val activity: BaseActivity,
     /** The list the choice came from (for channel up/down and next episode), the chosen position, and a name for it. */
     private val onPicked: (items: List<Playable>, index: Int, listName: String) -> Unit,
+    /** Only Live TV (e.g. choosing a channel to record). */
+    private val liveOnly: Boolean = false,
 ) {
     private val store get() = activity.store
 
@@ -43,6 +45,7 @@ class MvPicker(
     // ---------------- Steps ----------------
 
     private fun chooseSection(pl: Playlist, back: (() -> Unit)?) {
+        if (liveOnly) { load(pl, Section.LIVE) { back?.invoke() }; return }
         val sections = Section.values().toList()
         val title = if (store.viewPlaylists().size > 1) "${pl.name}: what to watch?" else "What to watch?"
         list(title, sections.map { it.title }, back) { i -> load(pl, sections[i]) { chooseSection(pl, back) } }
