@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Recordings: a red "record" circle. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="48dp" android:height="48dp" android:viewportWidth="48" android:viewportHeight="48">
+    <path android:fillColor="#E53935" android:pathData="M24,6a18,18 0,1 1,0 36a18,18 0,1 1,0 -36z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M22.5,15h3v7.5h7.5v3h-7.5v7.5h-3v-7.5h-7.5v-3h7.5z" />
+</vector>

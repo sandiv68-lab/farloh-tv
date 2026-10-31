@@ -213,13 +213,17 @@ class DownloadsActivity : BaseActivity() {
         bar.visibility = View.GONE
         when (r) {
             RecRow.New -> {
-                poster.setImageResource(R.drawable.ic_record)
-                title.text = "＋  New recording…"
+                poster.setImageResource(R.drawable.ic_record_red)
+                poster.scaleType = ImageView.ScaleType.CENTER_INSIDE
+                poster.background = null
+                title.text = "New recording…"
                 show.text = "Choose a channel, the day and the time (once, every day or every week)"
-                status.text = "Or: OK on a programme in the TV guide → Record, or Record in the player's Settings"
+                status.text = "Or press OK on a programme in a channel's TV Guide → Record, or use Record in the player's Settings"
             }
             is RecRow.Scheduled -> {
                 val s = r.s
+                poster.scaleType = ImageView.ScaleType.FIT_CENTER
+                poster.setBackgroundResource(R.drawable.placeholder)
                 poster.loadImage(s.logo)
                 title.text = s.title
                 show.text = s.channelName
@@ -231,6 +235,8 @@ class DownloadsActivity : BaseActivity() {
             }
             is RecRow.File -> {
                 val f = r.f
+                poster.scaleType = ImageView.ScaleType.FIT_CENTER
+                poster.setBackgroundResource(R.drawable.placeholder)
                 poster.loadImage(f.logo)
                 title.text = f.title
                 show.text = "${f.channelName}  •  ${RecordUi.whenLabel(this, f.start, f.end)}"
