@@ -60,6 +60,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.farloh.tv.R
 import com.farloh.tv.data.Account
 import com.farloh.tv.data.OnlineSubs
+import com.farloh.tv.player.AudioOutputs
 import com.farloh.tv.data.OpenSubtitles
 import com.farloh.tv.data.Programme
 import com.farloh.tv.data.Xtream
@@ -388,6 +389,8 @@ class PlayerActivity : BaseActivity() {
         exo.trackSelectionParameters = subtitlePreferences(exo)
         exo.addListener(listener)
         exo.addAnalyticsListener(stats)
+        // TV boxes: the sound output chosen in Settings → Sound output (if it's connected).
+        if (tvMode && Build.VERSION.SDK_INT >= 23) exo.setPreferredAudioDevice(AudioOutputs.preferred(this))
         exo.playWhenReady = true
         playerView.player = queuePlayer(exo)
         player = exo
@@ -1191,6 +1194,10 @@ class PlayerActivity : BaseActivity() {
         else if (p.kind == Kind.EPISODE && items.size > 1) opts += "Episodes" to { showPanel() }
         if (!isLive && exo != null) opts += "Playback speed: ${speedLabel(exo.playbackParameters.speed)}" to { chooseSpeed() }
         opts += "Audio track" to { trackDialog(C.TRACK_TYPE_AUDIO, "Audio track") }
+        if (tvMode && Build.VERSION.SDK_INT >= 23) opts += "Sound output: ${AudioOutputs.preferred(this)?.let { AudioOutputs.label(it) } ?: "Automatic"}" to {
+            SoundOutputs.choose(this, onChange = { d -> player?.setPreferredAudioDevice(d) },
+                pause = { player?.pause() }, resume = { player?.play() })
+        }
         opts += "Audio sync: ${if (store.audioDelayMs == 0) "0 ms" else "%+d ms".format(store.audioDelayMs)}" to { audioSyncDialog() }
         opts += "Subtitles" to { subtitleMenu() }
         opts += "Screen size: ${SettingsActivity.RESIZES.firstOrNull { it.first == store.videoResize }?.second ?: "Fit"}" to { chooseScreenSize() }
