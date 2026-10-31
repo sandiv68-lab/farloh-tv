@@ -16,7 +16,9 @@
             <TextView android:id="@+id/account" android:layout_width="0dp" android:layout_height="wrap_content"
                 android:layout_weight="1" android:layout_marginStart="12dp" android:ellipsize="end" android:gravity="end"
                 android:maxLines="2" android:textColor="@color/text2" android:textSize="13sp" />
-            <FrameLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="12dp">
+            <ImageButton android:id="@+id/search" style="@style/IconBtn" android:layout_marginStart="12dp"
+                android:src="@drawable/ic_search" android:contentDescription="Search" />
+            <FrameLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp">
                 <ImageButton android:id="@+id/refreshAll" style="@style/IconBtn"
                     android:src="@drawable/ic_refresh" android:contentDescription="Refresh all (Live TV, Movies, TV Shows)" />
                 <ProgressBar android:id="@+id/refreshAllProgress" android:layout_width="48dp" android:layout_height="48dp"
@@ -40,39 +42,15 @@
             </FrameLayout>
         </LinearLayout>
 
-        <!-- Tiles are a fixed, comfortable size and sit in the middle of the free space; the search bar sits under them. -->
-        <FrameLayout android:id="@+id/homeArea" android:layout_width="match_parent" android:layout_height="0dp"
-            android:layout_weight="1" android:clipChildren="false" android:clipToPadding="false">
+        <!-- Tiles are a fixed, comfortable size and sit in the middle of the free space. -->
+        <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+            android:clipChildren="false" android:clipToPadding="false">
             <LinearLayout android:id="@+id/tiles" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_gravity="center" android:clipChildren="false" android:clipToPadding="false"
                 android:orientation="horizontal">
                 <include android:id="@+id/tileLive" layout="@layout/home_tile" />
                 <include android:id="@+id/tileMovies" layout="@layout/home_tile" />
                 <include android:id="@+id/tileSeries" layout="@layout/home_tile" />
-            </LinearLayout>
-            <!-- Search: type here and press Search; recent searches are the small chips under the box. -->
-            <LinearLayout android:id="@+id/homeSearchBar" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:layout_gravity="bottom|center_horizontal" android:layout_marginBottom="4dp"
-                android:clipChildren="false" android:clipToPadding="false" android:orientation="vertical">
-                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:gravity="center_vertical" android:orientation="horizontal">
-                    <EditText android:id="@+id/homeSearch" android:layout_width="0dp" android:layout_height="40dp"
-                        android:layout_weight="1" android:background="@drawable/field_bg" android:drawableStart="@drawable/ic_search"
-                        android:drawablePadding="10dp" android:drawableTint="@color/text2"
-                        android:hint="Search Live TV, Movies, TV Shows and EPG" android:imeOptions="actionSearch"
-                        android:importantForAutofill="no" android:inputType="text" android:paddingStart="14dp"
-                        android:paddingTop="0dp" android:paddingEnd="14dp" android:paddingBottom="0dp" android:singleLine="true"
-                        android:textColor="@color/text" android:textColorHint="@color/text2" android:textSize="14sp" />
-                    <ImageButton android:id="@+id/homeMic" style="@style/IconBtn" android:layout_width="40dp" android:layout_height="40dp"
-                        android:layout_marginStart="6dp" android:padding="9dp" android:src="@drawable/ic_mic"
-                        android:contentDescription="Voice search" android:visibility="gone" />
-                </LinearLayout>
-                <HorizontalScrollView android:id="@+id/homeRecentScroll" android:layout_width="match_parent"
-                    android:layout_height="wrap_content" android:layout_marginTop="6dp" android:clipToPadding="false"
-                    android:paddingTop="3dp" android:paddingBottom="3dp" android:scrollbars="none" android:visibility="gone">
-                    <LinearLayout android:id="@+id/homeRecent" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:orientation="horizontal" android:paddingStart="3dp" android:paddingEnd="3dp" />
-                </HorizontalScrollView>
             </LinearLayout>
         </FrameLayout>
     </LinearLayout>
