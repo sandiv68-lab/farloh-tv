@@ -236,11 +236,11 @@ class MultiviewActivity : BaseActivity() {
      */
     private fun applySound() {
         if (secondSlot == soundSlot || slots.getOrNull(secondSlot)?.empty == true) { secondSlot = -1; secondDevice = null }
-        val mainDevice = if (tvMode && android.os.Build.VERSION.SDK_INT >= 23) com.farloh.tv.player.AudioOutputs.preferred(this) else null
+        val mainDevice = if (android.os.Build.VERSION.SDK_INT >= 23) com.farloh.tv.player.AudioOutputs.preferred(this) else null
         slots.forEachIndexed { i, s ->
             val exo = s.player ?: return@forEachIndexed
             val on = i == soundSlot || i == secondSlot
-            if (android.os.Build.VERSION.SDK_INT >= 23 && (tvMode || secondSlot >= 0)) {
+            if (android.os.Build.VERSION.SDK_INT >= 23) {
                 exo.setPreferredAudioDevice(if (i == secondSlot) secondDevice else mainDevice)
             }
             exo.volume = if (on) 1f else 0f
@@ -425,6 +425,7 @@ class MultiviewActivity : BaseActivity() {
             opts += "Previous channel" to { step(i, -1) }
         }
         if (p.kind == Kind.EPISODE && s.index + 1 < s.items.size) opts += "Next episode" to { step(i, +1) }
+        if (!tvMode && android.os.Build.VERSION.SDK_INT >= 23) opts += "Sound…" to { soundMenu(i) } // TV: hold OK
         opts += "Change layout…" to { chooseLayout() }
         opts += "Watch this full screen (leave Multiview)" to { exitTo(i) }
         if (i > 0) opts += "Swap with the main window" to { swap(0, i) }
@@ -439,7 +440,7 @@ class MultiviewActivity : BaseActivity() {
             .show()
     }
 
-    /** Hold OK on a window (TV boxes): where its sound goes. */
+    /** Hold OK on a window (phones: Sound… in its options): where its sound goes. */
     private fun soundMenu(i: Int) {
         if (i !in 0 until visibleCount) return
         val s = slots[i]

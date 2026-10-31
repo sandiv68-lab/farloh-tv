@@ -73,6 +73,9 @@ import com.farloh.tv.player.PlayQueue
 import com.farloh.tv.player.Playable
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withPermit
 import java.io.File
 
 /**
@@ -147,17 +150,189 @@ class PlayerActivity : BaseActivity() {
     }
 
     private val channelAdapter = SimpleAdapter<Playable>(R.layout.row_channel, 1.02f) { v, p, pos ->
+        val list = panelItems
         v.findViewById<TextView>(R.id.num).text = p.num.orEmpty()
         v.findViewById<TextView>(R.id.name).text = p.title
         v.findViewById<ImageView>(R.id.logo).loadImage(p.logo)
         v.findViewById<View>(R.id.fav).visibility = if (favKey(p) in favs) View.VISIBLE else View.GONE
         // Channels from more than one playlist (combined): say which.
         v.findViewById<TextView>(R.id.playlistTag).apply {
-            val several = items.size > 1 && items.any { it.playlistId != items[0].playlistId }
+            val several = list.size > 1 && list.any { it.playlistId != list[0].playlistId }
             visibility = if (several) View.VISIBLE else View.GONE
             if (several) text = store.playlist(p.playlistId)?.name.orEmpty()
         }
-        v.isSelected = pos == index
+        // Live TV: what's on now, under the channel name.
+        v.findViewById<TextView>(R.id.sub).apply {
+            val line = if (p.kind == Kind.LIVE) nowLine(p) else null
+            visibility = if (line.isNullOrEmpty()) View.GONE else View.VISIBLE
+            text = line.orEmpty()
+        }
+        v.isSelected = list === items && pos == index
+    }
+
+    // ---------------- Channel / episode list: ← groups / seasons ----------------
+
+    private class PanelEntry(val name: String, val count: String, val open: () -> Unit)
+
+    private val groupAdapter = SimpleAdapter<PanelEntry>(R.layout.row_category, 1.02f) { v, e, _ ->
+        v.findViewById<TextView>(R.id.name).text = e.name
+        v.findViewById<TextView>(R.id.count).text = e.count
+    }
+
+    /** What the list shows: the playing list, or another group / season chosen with ←. */
+    private var panelItems: List<Playable> = emptyList()
+    private var panelName = ""
+    /** true while the list shows the groups (Live TV) or seasons (TV shows). */
+    private var panelUp = false
+    private var seriesInfoCache: Pair<String, com.farloh.tv.data.SeriesInfo>? = null
+
+    /** "Now: …" for a channel, from a small cache filled in the background (a few channels at a time). */
+    private val nowCache = HashMap<String, Programme?>()
+    private val nowLoading = HashSet<String>()
+    private val epgGate = kotlinx.coroutines.sync.Semaphore(4)
+
+    private fun nowLine(p: Playable): String? {
+        val key = "${p.playlistId}|${p.id}"
+        val t = System.currentTimeMillis()
+        val cached = nowCache[key]
+        val fresh = nowCache.containsKey(key) && (cached == null || cached.end > t)
+        if (!fresh && nowLoading.add(key)) {
+            val acc = store.accountFor(p.playlistId) ?: account
+            if (acc != null) lifecycleScope.launch {
+                val now = epgGate.withPermit {
+                    runCatching { Xtream.epg(acc, p.id, full = false) }.getOrDefault(emptyList()).firstOrNull { it.isNow() }
+                }
+                nowCache[key] = now
+                nowLoading.remove(key)
+                val i = channelAdapter.items.indexOfFirst { it.id == p.id && it.playlistId == p.playlistId }
+                if (i >= 0 && now != null) channelAdapter.notifyItemChanged(i)
+            } else nowLoading.remove(key)
+        }
+        val now = cached?.takeIf { it.isNow(t) } ?: return null
+        return "Now: ${now.title}   ${Fmt.time(this, now.start)} – ${Fmt.time(this, now.end)}"
+    }
+
+    /** The ← button: there's a step back (Live TV groups, or the seasons of the show). */
+    private fun canGoUp() = isLive || (current.kind == Kind.EPISODE && current.seriesId != null)
+
+    private fun showList(list: List<Playable>, title: String) {
+        panelUp = false
+        panelItems = list
+        panelName = title
+        panelTitle.text = title
+        findViewById<View>(R.id.panelBack).visibility = if (canGoUp()) View.VISIBLE else View.GONE
+        if (channelList.adapter !== channelAdapter) channelList.adapter = channelAdapter
+        if (channelAdapter.items !== list) channelAdapter.submit(list) else channelAdapter.notifyDataSetChanged()
+        val target = if (list === items) index else 0
+        val lm = channelList.layoutManager as LinearLayoutManager
+        lm.scrollToPositionWithOffset(target, dp(160))
+        channelList.post { lm.findViewByPosition(target)?.requestFocus() }
+    }
+
+    private fun showEntries(title: String, entries: List<PanelEntry>, focusName: String?) {
+        panelUp = true
+        panelTitle.text = title
+        findViewById<View>(R.id.panelBack).visibility = View.GONE
+        channelList.adapter = groupAdapter
+        groupAdapter.submit(entries)
+        val target = entries.indexOfFirst { it.name == focusName }.coerceAtLeast(0)
+        val lm = channelList.layoutManager as LinearLayoutManager
+        lm.scrollToPositionWithOffset(target, dp(160))
+        channelList.post { lm.findViewByPosition(target)?.requestFocus() }
+    }
+
+    /** One step back: channels → groups, episodes → seasons. */
+    private fun panelGoUp() {
+        if (panelUp || !canGoUp()) return
+        if (isLive) showGroups() else showSeasons()
+    }
+
+    private fun livePlayable(ch: com.farloh.tv.data.LiveChannel, acc: Account) =
+        Playable(Kind.LIVE, ch.id, ch.name, acc.liveUrl(ch.id, store.liveFormat), ch.image, ch.num, playlistId = ch.playlistId)
+
+    /** Live TV groups, as on the Live TV screen: Favourites, Recently watched, All, then the groups. */
+    private fun showGroups() {
+        val pid = current.playlistId
+        val acc = store.accountFor(pid) ?: account ?: return
+        val sec = com.farloh.tv.data.Section.LIVE
+        lifecycleScope.launch {
+            val data = try {
+                com.farloh.tv.data.Catalog.load(this@PlayerActivity, sec, pid)
+            } catch (e: Exception) {
+                toast(com.farloh.tv.net.Net.friendlyError(e), long = true); return@launch
+            }
+            if (channelPanel.visibility != View.VISIBLE) return@launch
+            val hidden = store.hiddenCategories(sec, pid)
+            val visible = if (hidden.isEmpty()) data.items else data.items.filter { it.categoryId !in hidden }
+            val channels = visible.filterIsInstance<com.farloh.tv.data.LiveChannel>()
+            val entries = ArrayList<PanelEntry>()
+            fun add(name: String, list: List<com.farloh.tv.data.LiveChannel>) {
+                if (list.isEmpty()) return
+                entries += PanelEntry(name, "${list.size}") { showList(list.map { livePlayable(it, acc) }, name) }
+            }
+            val favIds = store.favorites(sec, pid)
+            add("★  Favourites", channels.filter { it.id in favIds })
+            val byId = channels.associateBy { it.id }
+            add("Recently watched", store.history(pid).mapNotNull { byId[it] })
+            add("All", channels)
+            for (c in store.ordered(sec, pid, data.categories)) {
+                if (c.id in hidden) continue
+                add(c.name, data.byCategory[c.id].orEmpty().filterIsInstance<com.farloh.tv.data.LiveChannel>())
+            }
+            showEntries("Live TV groups", entries, panelName)
+        }
+    }
+
+    /** The seasons of the show that's playing. */
+    private fun showSeasons() {
+        val p = current
+        val seriesId = p.seriesId ?: return
+        val acc = store.accountFor(p.playlistId) ?: account ?: return
+        val showName = p.subtitle ?: p.searchTitle ?: "TV show"
+        lifecycleScope.launch {
+            val info = seriesInfoCache?.takeIf { it.first == "${p.playlistId}|$seriesId" }?.second ?: try {
+                withContext(Dispatchers.IO) { Xtream.seriesInfo(acc, seriesId) }.also { seriesInfoCache = "${p.playlistId}|$seriesId" to it }
+            } catch (e: Exception) {
+                toast(com.farloh.tv.net.Net.friendlyError(e), long = true); return@launch
+            }
+            if (channelPanel.visibility != View.VISIBLE) return@launch
+            val local = com.farloh.tv.data.Downloads.list(this@PlayerActivity).associateBy { it.key }
+            val states = com.farloh.tv.data.Downloads.status(this@PlayerActivity, local.values.toList())
+            val entries = info.episodes.keys.sorted().map { season ->
+                val label = if (season == 0) "Specials" else "Season $season"
+                val eps = info.episodes[season].orEmpty()
+                PanelEntry(label, "${eps.size} episodes") {
+                    val queue = eps.map { ep ->
+                        val key = "${Kind.EPISODE.name}_${ep.id}"
+                        val entry = local[key]
+                        val offline = if (entry != null && states[key]?.state == com.farloh.tv.data.DownloadState.DONE)
+                            com.farloh.tv.data.Downloads.playable(this@PlayerActivity, entry) else null
+                        offline?.copy(tmdbId = info.tmdbId, seriesId = seriesId) ?: Playable(
+                            Kind.EPISODE, ep.id, if (ep.title.isBlank()) "S${ep.season} E${ep.num}" else "S${ep.season} E${ep.num} · ${ep.title}",
+                            acc.episodeUrl(ep.id, ep.ext), ep.image ?: info.cover,
+                            subtitle = showName, searchTitle = showName, tmdbId = info.tmdbId, year = info.year.ifBlank { null },
+                            season = ep.season, episode = ep.num, ext = ep.ext, playlistId = p.playlistId, seriesId = seriesId,
+                        )
+                    }
+                    showList(queue, "$showName – $label")
+                }
+            }
+            if (entries.isEmpty()) { toast("No seasons found"); return@launch }
+            showEntries(showName, entries, if (p.season == 0) "Specials" else "Season ${p.season}")
+        }
+    }
+
+    /** A channel / episode from another group or season: it becomes the list that plays. */
+    private fun playFromPanel(list: List<Playable>, pos: Int, name: String) {
+        savePosition()
+        items = list
+        index = pos.coerceIn(0, list.size - 1)
+        PlayQueue.items = list
+        PlayQueue.index = index
+        PlayQueue.categoryName = name
+        favs = loadFavs()
+        if (!isLive) toast(current.title)
+        playCurrent(resume = !isLive)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -240,7 +415,16 @@ class PlayerActivity : BaseActivity() {
         channelList.layoutManager = LinearLayoutManager(this)
         channelList.itemAnimator = null
         channelList.adapter = channelAdapter
-        channelAdapter.onClick = { _, pos -> hidePanel(); if (isLive) switchTo(pos) else goToItem(pos) }
+        channelAdapter.onClick = { _, pos ->
+            hidePanel()
+            when {
+                panelItems !== items -> playFromPanel(panelItems, pos, panelName)
+                isLive -> switchTo(pos)
+                else -> goToItem(pos)
+            }
+        }
+        groupAdapter.onClick = { e, _ -> e.open() }
+        findViewById<View>(R.id.panelBack).setOnClickListener { panelGoUp() }
 
         // Live TV: tapping the picture shows / hides the overlay (the layer is only visible for Live TV).
         tapLayer.setOnClickListener {
@@ -389,8 +573,8 @@ class PlayerActivity : BaseActivity() {
         exo.trackSelectionParameters = subtitlePreferences(exo)
         exo.addListener(listener)
         exo.addAnalyticsListener(stats)
-        // TV boxes: the sound output chosen in Settings → Sound output (if it's connected).
-        if (tvMode && Build.VERSION.SDK_INT >= 23) exo.setPreferredAudioDevice(AudioOutputs.preferred(this))
+        // The sound output chosen in Settings → Sound output (if it's connected).
+        if (Build.VERSION.SDK_INT >= 23) exo.setPreferredAudioDevice(AudioOutputs.preferred(this))
         exo.playWhenReady = true
         playerView.player = queuePlayer(exo)
         player = exo
@@ -1065,12 +1249,10 @@ class PlayerActivity : BaseActivity() {
     private fun showPanel() {
         hideInfo()
         playerView.hideController()
-        panelTitle.text = if (isLive) PlayQueue.categoryName.ifBlank { "Channels" } else current.subtitle ?: "Episodes"
-        if (channelAdapter.items !== items) channelAdapter.submit(items) else channelAdapter.notifyDataSetChanged()
         channelPanel.visibility = View.VISIBLE
-        val lm = channelList.layoutManager as LinearLayoutManager
-        lm.scrollToPositionWithOffset(index, dp(160))
-        channelList.post { lm.findViewByPosition(index)?.requestFocus() }
+        val title = if (isLive) PlayQueue.categoryName.ifBlank { "Channels" }
+            else current.subtitle?.let { show -> current.season?.let { "$show – ${if (it == 0) "Specials" else "Season $it"}" } ?: show } ?: "Episodes"
+        showList(items, title)
     }
 
     private fun hidePanel() {
@@ -1194,7 +1376,7 @@ class PlayerActivity : BaseActivity() {
         else if (p.kind == Kind.EPISODE && items.size > 1) opts += "Episodes" to { showPanel() }
         if (!isLive && exo != null) opts += "Playback speed: ${speedLabel(exo.playbackParameters.speed)}" to { chooseSpeed() }
         opts += "Audio track" to { trackDialog(C.TRACK_TYPE_AUDIO, "Audio track") }
-        if (tvMode && Build.VERSION.SDK_INT >= 23) opts += "Sound output: ${AudioOutputs.preferred(this)?.let { AudioOutputs.label(it) } ?: "Automatic"}" to {
+        if (Build.VERSION.SDK_INT >= 23) opts += "Sound output: ${AudioOutputs.preferred(this)?.let { AudioOutputs.label(it) } ?: "Automatic"}" to {
             SoundOutputs.choose(this, onChange = { d -> player?.setPreferredAudioDevice(d) },
                 pause = { player?.pause() }, resume = { player?.play() })
         }
@@ -1218,6 +1400,8 @@ class PlayerActivity : BaseActivity() {
             store.playerGestures = !store.playerGestures
             toast(if (store.playerGestures) "Gestures on" else "Gestures off")
         }
+        // A – Z (the ★ / ☆ in front of Favourites doesn't count).
+        opts.sortBy { it.first.trimStart { c -> !c.isLetterOrDigit() }.lowercase() }
         AlertDialog.Builder(this)
             .setTitle("Settings")
             .setItems(opts.map { it.first }.toTypedArray()) { _, which -> opts[which].second() }
@@ -1687,12 +1871,19 @@ class PlayerActivity : BaseActivity() {
 
     // ---------------- Remote control ----------------
 
+    private fun isNavKey(code: Int) = code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN ||
+        code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT || code == KeyEvent.KEYCODE_DPAD_CENTER ||
+        code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (Build.VERSION.SDK_INT >= 24 && isInPictureInPictureMode) return super.dispatchKeyEvent(event)
         if (!isLive && channelPanel.visibility == View.VISIBLE) {
             if (event.action == KeyEvent.ACTION_DOWN &&
                 (event.keyCode == KeyEvent.KEYCODE_BACK || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)
             ) { hidePanel(); return true }
+            if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && !panelUp && canGoUp()) {
+                panelGoUp(); return true
+            }
             return super.dispatchKeyEvent(event)
         }
         if (!isLive) {
@@ -1703,6 +1894,16 @@ class PlayerActivity : BaseActivity() {
                 return true
             }
             if (vodTop.hasFocus()) return super.dispatchKeyEvent(event)
+            // Controls on screen but nothing selected yet (e.g. just after the video starts): the first
+            // arrow / OK selects the play/pause button instead of doing something else.
+            if (event.action == KeyEvent.ACTION_DOWN && isNavKey(event.keyCode) && playerView.isControllerFullyVisible &&
+                playerView.findFocus() == null
+            ) {
+                (playerView.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)
+                    ?: playerView.findViewById(R.id.vodActions))?.requestFocus()
+                playerView.showController() // restarts the hide timer
+                return true
+            }
             return playerView.dispatchKeyEvent(event) || super.dispatchKeyEvent(event)
         }
 
@@ -1715,6 +1916,8 @@ class PlayerActivity : BaseActivity() {
 
         if (channelPanel.visibility == View.VISIBLE) {
             if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_DPAD_RIGHT) { hidePanel(); return true }
+            // ← : one step back (channels → groups).
+            if (code == KeyEvent.KEYCODE_DPAD_LEFT && !panelUp && canGoUp()) { panelGoUp(); return true }
             return super.dispatchKeyEvent(event)
         }
         if (code == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || code == KeyEvent.KEYCODE_MEDIA_PLAY || code == KeyEvent.KEYCODE_MEDIA_PAUSE) {
@@ -1751,6 +1954,13 @@ class PlayerActivity : BaseActivity() {
                 return true
             }
             return super.dispatchKeyEvent(event)
+        }
+
+        // The overlay is on screen (e.g. after a channel change) but nothing in it is selected yet: arrows / OK
+        // select its buttons instead of changing the channel. Channel up / down works once it has gone (or CH+ / CH−).
+        if (infoBar.visibility == View.VISIBLE && isNavKey(code)) {
+            showInfo(focusButtons = true, controls = liveCenter.visibility == View.VISIBLE)
+            return true
         }
 
         when (code) {

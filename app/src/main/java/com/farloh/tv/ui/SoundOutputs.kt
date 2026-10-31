@@ -7,7 +7,7 @@ import androidx.lifecycle.lifecycleScope
 import com.farloh.tv.player.AudioOutputs
 import kotlinx.coroutines.launch
 
-/** TV boxes: choosing the sound output, and the "two outputs at once" test. */
+/** Choosing the sound output (TV boxes and phones), and the "two outputs at once" test. */
 @RequiresApi(23)
 object SoundOutputs {
 
@@ -16,7 +16,7 @@ object SoundOutputs {
         val store = activity.store
         val devices = AudioOutputs.list(activity)
         val labels = ArrayList<String>()
-        labels += (if (store.audioOutput.isBlank()) "✓  " else "     ") + "Automatic (the box decides)"
+        labels += (if (store.audioOutput.isBlank()) "✓  " else "     ") + "Automatic"
         for (d in devices) labels += (if (store.audioOutput == AudioOutputs.key(d)) "✓  " else "     ") + AudioOutputs.label(d)
         labels += "     Test two outputs at once…"
         AlertDialog.Builder(activity)
@@ -46,7 +46,7 @@ object SoundOutputs {
         if (devices.size < 2) {
             AlertDialog.Builder(activity).setTitle("Test two outputs")
                 .setMessage("Only one sound output is connected" + (devices.firstOrNull()?.let { " (${AudioOutputs.label(it)})" } ?: "") +
-                    ".\n\nPair Bluetooth headphones or a speaker in the box's own settings (Settings → Remotes & accessories), then try again.")
+                    ".\n\nConnect Bluetooth headphones or a speaker (or plug in headphones) in the device's own settings, then try again.")
                 .setPositiveButton("OK", null).show()
             return
         }
@@ -75,13 +75,13 @@ object SoundOutputs {
                     if (reported) {
                         append("Android sent:\n• low beeps → ${r.firstRoutedTo}\n• high beeps → ${r.secondRoutedTo}\n\n")
                         append(
-                            if (split) "✓ This box can play two outputs at once. In Multiview, hold OK on a window to give it a second sound."
-                            else "✗ Both went to the same output, so this box can't play two outputs at once. " +
+                            if (split) "✓ This device can play two outputs at once. In Multiview, hold OK (phones: Sound… in a window's options) to give a window a second sound."
+                            else "✗ Both went to the same output, so this device can't play two outputs at once. " +
                                 "Choosing one output (Settings → Sound output in the player) still works."
                         )
                     } else {
                         append("Did you hear the low beeps on ${r.first} and the high beeps on ${r.second}?\n\n")
-                        append("If yes, this box can play two outputs at once. If both came out of the same place, it can't.")
+                        append("If yes, this device can play two outputs at once. If both came out of the same place, it can't.")
                     }
                 }
             } catch (e: Exception) {
