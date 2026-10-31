@@ -17,6 +17,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.farloh.tv.BuildConfig
 import com.farloh.tv.R
 import com.farloh.tv.data.Catalog
+import com.farloh.tv.data.OnlineSubs
 import com.farloh.tv.data.OpenSubtitles
 import com.farloh.tv.data.Section
 import com.farloh.tv.data.Xtream
@@ -251,8 +252,33 @@ class SettingsActivity : BaseActivity() {
         }
 
         r += Row.Header("Online subtitles", "subtitles", R.drawable.ic_subtitles,
-            if (store.subsApiKey.isBlank()) "OpenSubtitles – not set up yet" else "OpenSubtitles – ${if (store.subsServer == "vip") "VIP server" else if (store.subsServer == "custom") "custom server" else "default server"}")
-        r += Row.Item("Subtitle server", when (store.subsServer) {
+            "Podnapisi, Addic7ed" + if (store.subsApiKey.isBlank()) " • OpenSubtitles optional" else " + OpenSubtitles")
+        r += Row.Item("Search languages", OpenSubtitles.languages(store).uppercase(),
+            "Codes separated by commas, e.g. en,ms,zh") {
+            Dialogs.input(this, "Languages (e.g. en,ms,zh)", store.subsLanguages.ifBlank { OpenSubtitles.languages(store) }) {
+                store.subsLanguages = it.trim().lowercase(); refresh()
+            }
+        }
+        r += Row.Item("Free sources", "Podnapisi • Addic7ed",
+            "Searched automatically – nothing to set up. Addic7ed has TV shows only.") {
+            AlertDialog.Builder(this)
+                .setTitle("Online subtitles")
+                .setMessage("In the player, open Subtitles → Search online… Farloh searches these together:\n\n" +
+                    "• Podnapisi – movies and TV shows, free\n" +
+                    "• Addic7ed – TV shows, free\n" +
+                    "• OpenSubtitles – the biggest library, only if you set it up below (optional)\n\n" +
+                    "Each subtitle in the list shows where it comes from.")
+                .setPositiveButton("OK", null)
+                .show()
+        }
+        r += Row.Item("OpenSubtitles (optional)", if (store.subsApiKey.isBlank()) "Not set up" else "On",
+            "Adds the biggest subtitle library. Needs your own free API key – see \"How to set up OpenSubtitles\"") {
+            AlertDialog.Builder(this).setTitle("OpenSubtitles (optional)")
+                .setMessage("Without it, subtitles still come from Podnapisi and Addic7ed. To add OpenSubtitles, fill in the API key " +
+                    "below (and, if you like, your OpenSubtitles username and password for more downloads per day).")
+                .setPositiveButton("OK", null).show()
+        }
+        r += Row.Item("OpenSubtitles server", when (store.subsServer) {
             "vip" -> "VIP API server"; "custom" -> "Custom"; else -> "Default server"
         }, when (store.subsServer) {
             "vip" -> "vip-api.opensubtitles.com – for OpenSubtitles VIP members"
@@ -271,38 +297,33 @@ class SettingsActivity : BaseActivity() {
                 }
             }
         }
-        r += Row.Item("API key", if (store.subsApiKey.isBlank()) "Not set" else "••••" + store.subsApiKey.takeLast(4),
-            "Required. Free from opensubtitles.com → API consumers") {
+        r += Row.Item("OpenSubtitles API key", if (store.subsApiKey.isBlank()) "Not set" else "••••" + store.subsApiKey.takeLast(4),
+            "Free from opensubtitles.com → API consumers") {
             Dialogs.input(this, "OpenSubtitles API key", store.subsApiKey) {
                 store.subsApiKey = it.trim(); OpenSubtitles.forgetLogin(); refresh()
             }
         }
-        r += Row.Item("Account username", store.subsUsername.ifBlank { "Not signed in (optional)" },
+        r += Row.Item("OpenSubtitles username", store.subsUsername.ifBlank { "Not signed in (optional)" },
             "Signing in gives more downloads per day; VIP accounts get the most") {
             Dialogs.input(this, "OpenSubtitles username", store.subsUsername) {
                 store.subsUsername = it.trim(); OpenSubtitles.forgetLogin(); refresh()
             }
         }
-        r += Row.Item("Account password", if (store.subsPassword.isEmpty()) "Not set" else "••••••") {
+        r += Row.Item("OpenSubtitles password", if (store.subsPassword.isEmpty()) "Not set" else "••••••") {
             Dialogs.input(this, "OpenSubtitles password", password = true) {
                 store.subsPassword = it; OpenSubtitles.forgetLogin(); refresh()
             }
         }
-        r += Row.Item("Search languages", OpenSubtitles.languages(store).uppercase(),
-            "Codes separated by commas, e.g. en,ms,zh") {
-            Dialogs.input(this, "Languages (e.g. en,ms,zh)", store.subsLanguages.ifBlank { OpenSubtitles.languages(store) }) {
-                store.subsLanguages = it.trim().lowercase(); refresh()
-            }
-        }
-        r += Row.Item("Test connection", "") { testSubtitles() }
-        r += Row.Item("How to get an API key", "") {
+        r += Row.Item("Test online subtitles", "") { testSubtitles() }
+        r += Row.Item("How to set up OpenSubtitles", "") {
             AlertDialog.Builder(this)
                 .setTitle("OpenSubtitles API key")
                 .setMessage("1. On a phone or computer, create a free account at opensubtitles.com.\n\n" +
                     "2. Open opensubtitles.com/consumers and press \"New consumer\". Any name works, e.g. Farloh TV.\n\n" +
-                    "3. Copy the API key it shows and paste it here under \"API key\".\n\n" +
-                    "Optional: enter your OpenSubtitles username and password for more downloads per day. " +
-                    "VIP members can choose the VIP API server.")
+                    "3. Copy the API key it shows and paste it here under \"OpenSubtitles API key\".\n\n" +
+                    "Downloads per day (OpenSubtitles' limits): about 5 without signing in, about 10–20 with a free account " +
+                    "(enter its username and password here), up to 1,000 for VIP members (who can also choose the VIP server). " +
+                    "Searching is unlimited.")
                 .setPositiveButton("OK", null)
                 .show()
         }
@@ -515,21 +536,32 @@ class SettingsActivity : BaseActivity() {
         }
     }
 
+    /** Searches every source for a well-known movie and says which ones answered. */
     private fun testSubtitles() {
-        if (store.subsApiKey.isBlank()) { toast("Add your API key first"); return }
         toast("Checking…")
         lifecycleScope.launch {
-            try {
-                val who = OpenSubtitles.login(store, force = true)
-                val n = OpenSubtitles.search(store, OpenSubtitles.Query("The Matrix", "1999", "603", null, null)).size
-                AlertDialog.Builder(this@SettingsActivity).setTitle("Online subtitles work")
-                    .setMessage((who ?: "Using the API key without an account.") + "\n\nTest search found $n subtitles in ${OpenSubtitles.languages(store)}.")
-                    .setPositiveButton("OK", null).show()
-            } catch (e: Exception) {
-                AlertDialog.Builder(this@SettingsActivity).setTitle("Online subtitles")
-                    .setMessage(e.message ?: "Couldn't reach the subtitle server.")
-                    .setPositiveButton("OK", null).show()
+            val lines = ArrayList<String>()
+            if (store.subsApiKey.isNotBlank()) {
+                lines += try {
+                    OpenSubtitles.login(store, force = true) ?: "OpenSubtitles: API key works (not signed in)"
+                } catch (e: Exception) { "OpenSubtitles: ${e.message}" }
             }
+            val movie = OnlineSubs.search(store, OpenSubtitles.Query("The Matrix", "1999", "603", null, null))
+            val show = OnlineSubs.search(store, OpenSubtitles.Query("Friends", null, null, 1, 1))
+            for (src in listOfNotNull(OnlineSubs.PODNAPISI, OnlineSubs.GESTDOWN,
+                    OnlineSubs.OPENSUBTITLES.takeIf { store.subsApiKey.isNotBlank() })) {
+                val n = (movie.hits + show.hits).count { it.source == src }
+                val err = (movie.errors + show.errors).firstOrNull { it.startsWith("$src:") }
+                lines += when {
+                    n > 0 -> "✓ $src – found $n test subtitles"
+                    err != null -> "✗ $err"
+                    else -> "✗ $src – nothing found in ${OpenSubtitles.languages(store).uppercase()}"
+                }
+            }
+            if (store.subsApiKey.isBlank()) lines += "\nOpenSubtitles isn't set up (optional)."
+            AlertDialog.Builder(this@SettingsActivity).setTitle("Online subtitles")
+                .setMessage(lines.joinToString("\n"))
+                .setPositiveButton("OK", null).show()
         }
     }
 

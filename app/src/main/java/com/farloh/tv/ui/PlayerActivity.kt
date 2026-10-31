@@ -59,6 +59,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.farloh.tv.R
 import com.farloh.tv.data.Account
+import com.farloh.tv.data.OnlineSubs
 import com.farloh.tv.data.OpenSubtitles
 import com.farloh.tv.data.Programme
 import com.farloh.tv.data.Xtream
@@ -615,7 +616,7 @@ class PlayerActivity : BaseActivity() {
             }
         }
         if (!isLive) {
-            labels += "     Search online (OpenSubtitles)…"
+            labels += "     Search online…"
             actions += { searchSubtitles() }
             if (subFile(p).exists()) {
                 labels += "     Remove downloaded subtitle"
@@ -643,56 +644,50 @@ class PlayerActivity : BaseActivity() {
         return if (forced) "$base (forced)" else base
     }
 
+    /** Podnapisi + Addic7ed (free, no setup) and OpenSubtitles (when its API key is set in Settings). */
     private fun searchSubtitles() {
         val p = current
-        if (store.subsApiKey.isBlank()) {
-            AlertDialog.Builder(this)
-                .setTitle("Online subtitles")
-                .setMessage("To search subtitles online, add your free OpenSubtitles API key in Settings → Online subtitles.")
-                .setPositiveButton("Open Settings") { _, _ -> startActivity(Intent(this, SettingsActivity::class.java)) }
-                .setNegativeButton("Close", null)
-                .show()
-            return
-        }
         val q = OpenSubtitles.Query(
             title = p.searchTitle ?: p.title, year = p.year, tmdbId = p.tmdbId, season = p.season, episode = p.episode,
         )
         showStatus("Searching subtitles…")
         lifecycleScope.launch {
-            try {
-                val results = OpenSubtitles.search(store, q).take(40)
-                hideStatus()
-                if (results.isEmpty()) {
-                    toast("No subtitles found in: ${OpenSubtitles.languages(store)}", long = true)
-                    return@launch
-                }
-                val labels = results.map {
-                    "${it.language.uppercase()}  •  ${it.release.take(70)}  •  ${it.downloads} downloads" +
-                        if (it.hearingImpaired) "  (HI)" else ""
-                }
-                AlertDialog.Builder(this@PlayerActivity)
-                    .setTitle(if (q.isEpisode) "${q.title} S${q.season} E${q.episode}" else q.title)
-                    .setItems(labels.toTypedArray()) { _, which -> downloadSubtitle(p, results[which]) }
-                    .setNegativeButton("Cancel", null)
-                    .show()
+            val found = try {
+                OnlineSubs.search(store, q)
             } catch (e: Exception) {
-                hideStatus()
-                toast(e.message ?: "Subtitle search failed", long = true)
+                hideStatus(); toast(e.message ?: "Subtitle search failed", long = true); return@launch
             }
+            hideStatus()
+            val results = found.hits.take(60)
+            if (results.isEmpty()) {
+                val why = if (found.errors.isNotEmpty()) "\n" + found.errors.joinToString("\n") else ""
+                toast("No subtitles found in: ${OpenSubtitles.languages(store).uppercase()}$why", long = true)
+                return@launch
+            }
+            val labels = results.map {
+                "${it.language.uppercase()}  •  ${it.release.take(70)}  •  ${it.source}" +
+                    (if (it.downloads > 0) "  •  ${it.downloads} downloads" else "") +
+                    if (it.hearingImpaired) "  (HI)" else ""
+            }
+            AlertDialog.Builder(this@PlayerActivity)
+                .setTitle(if (q.isEpisode) "${q.title} S${q.season} E${q.episode}" else q.title)
+                .setItems(labels.toTypedArray()) { _, which -> downloadSubtitle(p, results[which]) }
+                .setNegativeButton("Cancel", null)
+                .show()
         }
     }
 
-    private fun downloadSubtitle(p: Playable, r: OpenSubtitles.Result) {
+    private fun downloadSubtitle(p: Playable, r: OnlineSubs.Hit) {
         showStatus("Downloading subtitle…")
         lifecycleScope.launch {
             try {
-                val d = OpenSubtitles.download(store, r.fileId, subFile(p))
+                val note = OnlineSubs.download(store, r, subFile(p))
                 hideStatus()
                 if (current.resumeKey == p.resumeKey) {
                     setSubtitlesEnabled(true)
                     reloadKeepingPosition()
                 }
-                toast("Subtitle added" + (d.remaining?.let { " • $it downloads left today" } ?: ""))
+                toast("Subtitle added" + (note?.let { " • $it" } ?: ""))
             } catch (e: Exception) {
                 hideStatus()
                 toast(e.message ?: "Subtitle download failed", long = true)
