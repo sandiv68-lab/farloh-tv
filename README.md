@@ -6,10 +6,14 @@ A simple Android IPTV player for Xtream Codes servers. It runs on Android TV box
 - **Login** with server URL, username and password. The login is stored encrypted on the device.
 - **Live TV** with categories, favourites, search and a TV guide (EPG) for each channel.
 - **Movies** and **TV Shows** with posters, details, seasons and episodes, plus resume where you left off.
-- **Manual refresh for each section.** Live TV, Movies and TV Shows each have their own *Refresh* button, on the home screen and inside each section. Playlists are cached and are not re-downloaded on their own.
-- **Built-in player.** AndroidX Media3 (ExoPlayer, open source). Press OK (or tap) for the overlay: playback controls in the middle and, at the bottom, one bar for Live TV, movies and episodes: Channels/Episodes, playback speed, audio track, audio sync, subtitles (CC), screen size, Multiview, favourite, Open in external and Settings. Picture-in-picture on devices that support it.
-- **Multiview.** 2–4 videos at once (channels, movies or episodes from any playlist) in four layouts; every window is exactly 16:9. Only the chosen window has sound.
-- **Combined playlists, search with history, EPG search, backup & restore, parental PIN, downloads, online subtitles.**
+- **Manual refresh.** On the home screen: *Refresh* under Live TV, Movies and TV Shows, and *Refresh all*. Playlists are cached and are not re-downloaded on their own; when most groups are hidden, only the shown groups are downloaded.
+- **Sorting** for Movies and TV Shows (default, recently added by server, rating, release date, A–Z, Z–A) per group or for all groups (not in "All").
+- **Hide & arrange groups** (Settings → Parental control, optionally behind a PIN).
+- **Built-in player.** AndroidX Media3 (ExoPlayer, open source). Press OK (or tap) for the overlay: playback controls in the middle and, at the bottom, one bar for Live TV, movies and episodes: Channels/Episodes, playback speed, audio track, audio sync, subtitles (CC), screen size, Multiview, favourite, Open in external and Settings (A–Z, including sound output, subtitle sync, Stats for Nerds, sleep timer and Record). Live TV shows the guide in the bar (Left / Right through the programmes) and what's on now in the channel list, with ← to the groups (TV shows: to the seasons). Picture-in-picture on devices that support it.
+- **Multiview.** 2–4 videos at once (channels, movies or episodes from any playlist) in four layouts; every window is exactly 16:9. Only the chosen window has sound. Phones: pinch to zoom to fill the screen.
+- **Recording (Live TV).** From the TV guide, *Record now* in the player, or set up by hand; once, every day or on chosen days, with extra time before and after. Runs in the background (foreground service + alarm), reconnects if the stream drops, and saves to device storage or a USB drive. Found in Downloads & Recordings.
+- **Online subtitles** from Podnapisi and Addic7ed (no setup), plus OpenSubtitles with your own API key (optional).
+- **Combined playlists, search with history (phones: voice search), EPG search, backup & restore, parental PIN, downloads.**
 - **Open in external.** Opens the stream in MX Player (Pro or free), VLC or mpv – the first one installed – or Android's "Open with" list. Settings can make the external player the default.
 - **Certificates.** Plain `http://` servers are allowed. For `https://`, an up-to-date bundle of public root certificates is included (`app/src/main/res/raw/extra_roots.pem`: Let's Encrypt ISRG X1/X2, Google Trust Services, DigiCert G2/G3, Sectigo, Amazon, SSL.com, GlobalSign, Certum). Older TV boxes are missing several of these. Certificates are always verified. To trust a server's own certificate, append its PEM to that file.
 
@@ -18,10 +22,10 @@ A simple Android IPTV player for Xtream Codes servers. It runs on Android TV box
 |---|---|
 | Up / CH+ | Next channel |
 | Down / CH- | Previous channel |
-| OK / Right / Info / Menu | Overlay: now & next, ⏮ ⏸ ⏭ and the button bar |
-| Left | Channel list |
+| OK / Right / Info / Menu | Overlay: the guide, ⏮ ⏸ ⏭ and the button bar (Up to the guide: Left / Right = earlier / later, OK = details & Record) |
+| Left | Channel list (Left again: the groups) |
 | Play/Pause | Pause / resume |
-| Hold OK or Menu (in lists) | Options: open in external, add to favourites, TV guide |
+| Hold OK (in lists) | Add to / remove from Favourites (Menu: more options) |
 | Back | Close overlay / exit player (or picture-in-picture, if set) |
 
 ## Remote control (Multiview)
