@@ -276,7 +276,6 @@ class PlayerActivity : BaseActivity() {
     private fun fitControlsToScreen() {
         if (tvMode) return
         val d = resources.displayMetrics.density
-        val vodRoot = playerView.findViewById<View>(R.id.vodRoot)
         val vodPanel = playerView.findViewById<View>(R.id.vodPanel)
         // Compact panels.
         for (panel in listOfNotNull(vodPanel, infoBar)) {
@@ -285,20 +284,39 @@ class PlayerActivity : BaseActivity() {
         playerView.findViewById<TextView>(R.id.vodPanelTitle)?.textSize = 17f
         chName.textSize = 18f
         chLogo.layoutParams = chLogo.layoutParams.apply { width = (64 * d).toInt(); height = (40 * d).toInt() }
+        // Slightly smaller ⏮ ⏪ ▶ ⏩ ⏭ (still in the middle) so they clear the bottom panel on short screens.
+        val centres = listOfNotNull(
+            playerView.findViewById<android.view.ViewGroup>(androidx.media3.ui.R.id.exo_center_controls),
+            liveCenter as? android.view.ViewGroup,
+        )
+        for (row in centres) for (i in 0 until row.childCount) {
+            val b = row.getChildAt(i)
+            val big = b.id == androidx.media3.ui.R.id.exo_play_pause || b.id == R.id.livePlayPause
+            val size = ((if (big) 64 else 48) * d).toInt()
+            b.layoutParams = (b.layoutParams as android.view.ViewGroup.MarginLayoutParams).apply {
+                width = size; height = size
+                if (i > 0) marginStart = (14 * d).toInt()
+            }
+        }
         // The button-name line is for TV remotes; on a touch screen it only takes space.
         actionRows.forEach { it.findViewById<View>(R.id.actLabel)?.visibility = View.GONE }
 
-        val base = listOfNotNull(vodRoot, infoBar, channelPanel, liveCenter).associateWith {
+        val bottomPanels = listOfNotNull(vodPanel, infoBar)
+        val base = (bottomPanels + channelPanel).associateWith {
             intArrayOf(it.paddingLeft, it.paddingTop, it.paddingRight, it.paddingBottom)
         }
         ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { v, insets ->
             val bars = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars())
             val cut = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
-            val l = maxOf(bars.left, cut.left); val r = maxOf(bars.right, cut.right)
+            // The same room on both sides, so the panels (and their shadow) stay centred and full width.
+            val side = maxOf(bars.left, cut.left, bars.right, cut.right)
             val t = maxOf(bars.top, cut.top); val b = maxOf(bars.bottom, cut.bottom)
-            for ((view, p) in base) {
-                val top = if (view === infoBar) p[1] else p[1] + t // the info bar sits at the bottom
-                view.setPadding(p[0] + l, top, p[2] + r, p[3] + b)
+            for (panel in bottomPanels) {
+                val p = base.getValue(panel)
+                panel.setPadding(p[0] + side, p[1], p[2] + side, p[3] + b)
+            }
+            base.getValue(channelPanel).let { p ->
+                channelPanel.setPadding(p[0] + maxOf(bars.left, cut.left), p[1] + t, p[2], p[3] + b)
             }
             ViewCompat.onApplyWindowInsets(v, insets)
         }
@@ -1012,8 +1030,7 @@ class PlayerActivity : BaseActivity() {
         if (zoom > 1.01f) opts += "Reset zoom (${(zoom * 100).roundToInt()}%)" to { zoom = 1f; applyZoom() }
         opts += "Multiview" to { startMultiview() }
         if (favTarget(p) != null) {
-            val what = when (p.kind) { Kind.LIVE -> "channel"; Kind.MOVIE -> "movie"; Kind.EPISODE -> "TV show" }
-            opts += (if (isFav(p)) "★  Remove $what from Favourites" else "☆  Add $what to Favourites") to { toggleFavorite() }
+            opts += (if (isFav(p)) "★  Remove from Favourites" else "☆  Add to Favourites") to { toggleFavorite() }
         }
         opts += "Open in external" to { openExternal() }
         opts += "Sleep timer: ${if (sleepMinutes > 0) "$sleepMinutes min" else "Off"}" to {
@@ -1047,9 +1064,11 @@ class PlayerActivity : BaseActivity() {
             }
         }
         on(R.id.actChannels, { showPanel() })
-        on(R.id.actSpeed, { chooseSpeed() })
-        on(R.id.actAudio, { trackDialog(C.TRACK_TYPE_AUDIO, "Audio track") })
-        on(R.id.actSync, { audioSyncDialog() })
+        // Press = next option (shown on screen), hold = the full list.
+        on(R.id.actSpeed, { nextSpeed() }, { chooseSpeed() })
+        on(R.id.actAudio, { nextAudioTrack() }, { trackDialog(C.TRACK_TYPE_AUDIO, "Audio track") })
+        // Audio sync: press = +50 ms, quick double press = −50 ms, hold = the box.
+        on(R.id.actSync, { syncPressed() }, { audioSyncDialog() })
         on(R.id.actCC, { toggleSubtitles() }, { subtitleMenu() })
         on(R.id.actSize, { nextScreenSize() }, { chooseScreenSize() })
         on(R.id.actMultiview, { startMultiview() })
@@ -1109,15 +1128,67 @@ class PlayerActivity : BaseActivity() {
     private fun speedLabel(s: Float): String =
         (if (s == s.toInt().toFloat()) "${s.toInt()}.0" else s.toString().trimEnd('0')) + "x"
 
+    private val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+
     /** Speed uses the player's normal speed control: it works where the device can do it. */
     private fun chooseSpeed() {
         val exo = player ?: return
-        val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
-        Dialogs.choose(this, "Playback speed", speeds.map { speedLabel(it) }, speeds, exo.playbackParameters.speed) {
-            player?.setPlaybackSpeed(it)
-            showGestureInfo("Speed ${speedLabel(it)}")
-            updateActions()
+        Dialogs.choose(this, "Playback speed", speeds.map { speedLabel(it) }, speeds, exo.playbackParameters.speed) { setSpeed(it) }
+    }
+
+    /** Press: 1.0x → 1.25x → … → 2.0x → 0.5x → 0.75x → 1.0x. */
+    private fun nextSpeed() {
+        val exo = player ?: return
+        val now = exo.playbackParameters.speed
+        setSpeed(speeds.firstOrNull { it > now + 0.01f } ?: speeds.first())
+    }
+
+    private fun setSpeed(s: Float) {
+        player?.setPlaybackSpeed(s)
+        showGestureInfo("Speed ${speedLabel(s)}")
+        updateActions()
+    }
+
+    /** Press: the next audio track (language), shown on screen. */
+    private fun nextAudioTrack() {
+        val exo = player ?: return
+        val tracks = exo.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+            .flatMap { g -> (0 until g.length).filter { g.isTrackSupported(it) }.map { g to it } }
+        if (tracks.size < 2) {
+            showGestureInfo(if (tracks.isEmpty()) "No audio tracks" else "Only one audio track")
+            return
         }
+        val cur = tracks.indexOfFirst { (g, t) -> g.isTrackSelected(t) }
+        val (g, t) = tracks[(cur + 1) % tracks.size]
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setOverrideForType(androidx.media3.common.TrackSelectionOverride(g.mediaTrackGroup, t)).build()
+        val f = g.getTrackFormat(t)
+        val extra = listOfNotNull(
+            f.channelCount.takeIf { it > 0 }?.let { if (it > 2) "${it - 1}.1" else if (it == 2) "stereo" else "mono" },
+        ).joinToString()
+        showGestureInfo("Audio: " + trackName(f, (cur + 1) % tracks.size + 1) + if (extra.isNotEmpty()) " ($extra)" else "")
+    }
+
+    /** Audio sync on the bar: one press +50 ms, two quick presses −50 ms. */
+    private var syncTaps = 0
+    private val syncTapDone = Runnable {
+        val step = if (syncTaps >= 2) -50 else 50
+        syncTaps = 0
+        setAudioDelay(store.audioDelayMs + step)
+    }
+
+    private fun syncPressed() {
+        syncTaps++
+        handler.removeCallbacks(syncTapDone)
+        if (syncTaps >= 2) handler.post(syncTapDone) else handler.postDelayed(syncTapDone, 350)
+    }
+
+    private fun setAudioDelay(to: Int) {
+        val ms = to.coerceIn(-2000, 2000)
+        store.audioDelayMs = ms
+        delay.setDelayMs(ms)
+        showGestureInfo("Audio sync: " + if (ms == 0) "0 ms" else "%+d ms".format(ms))
+        updateActions()
     }
 
     /** CC: subtitles on/off in one press (hold for the full subtitles menu). */

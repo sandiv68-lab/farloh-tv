@@ -61,6 +61,8 @@ class SearchActivity : BaseActivity() {
     private lateinit var tabViews: Map<String, TextView>
 
     private var results: Map<Section, List<CatalogItem>> = emptyMap()
+    /** Combined playlists: the playlist whose results are shown. */
+    private var shownPlaylist: String? = null
     private var guideHits: List<GuideHit> = emptyList()
     private var shown: String = Section.LIVE.name
     private var lastQuery = ""
@@ -201,6 +203,7 @@ class SearchActivity : BaseActivity() {
     private fun showHistory(): Boolean {
         val history = store.searchHistory()
         if (history.isEmpty()) return false
+        findViewById<View>(R.id.playlistScroll).visibility = View.GONE
         resultsRv.layoutManager = LinearLayoutManager(this)
         resultsRv.adapter = historyAdapter
         historyAdapter.submit(history)
@@ -245,7 +248,7 @@ class SearchActivity : BaseActivity() {
                         errors += (if (combined) "${pl.name} – " else "") + "${sec.title}: ${Net.friendlyError(e)}"
                     }
                 }
-                found[sec] = hits.take(LIMIT)
+                found[sec] = hits // up to LIMIT per playlist
             }
             results = found
             guideHits = emptyList()
@@ -355,7 +358,8 @@ class SearchActivity : BaseActivity() {
         if (key == GUIDE) {
             resultsRv.layoutManager = LinearLayoutManager(this)
             resultsRv.adapter = guideAdapter
-            guideAdapter.submit(guideHits)
+            val hits = updatePlaylistRow(guideHits.map { it.channel.playlistId }) { pid -> guideHits.filter { it.channel.playlistId == pid } } ?: guideHits
+            guideAdapter.submit(hits)
             when {
                 lastQuery.isEmpty() -> {
                     summary.text = "Search programme names across all channels"
@@ -373,13 +377,14 @@ class SearchActivity : BaseActivity() {
                     return
                 }
             }
-            summary.text = if (guideHits.size >= LIMIT) "First $LIMIT programmes matching \"$lastQuery\""
-                           else "${Fmt.count(guideHits.size, "programme", "programmes")} matching \"$lastQuery\" (on now and next 36 hours)"
-            if (guideHits.isEmpty()) setEmpty("No upcoming programmes match \"$lastQuery\".") else showList()
+            summary.text = if (hits.size >= LIMIT) "First $LIMIT programmes matching \"$lastQuery\"$inPlaylist"
+                           else "${Fmt.count(hits.size, "programme", "programmes")} matching \"$lastQuery\"$inPlaylist (on now and next 36 hours)"
+            if (hits.isEmpty()) setEmpty("No upcoming programmes match \"$lastQuery\".") else showList()
             return
         }
         val sec = Section.valueOf(key)
-        val list = results[sec].orEmpty()
+        val all = results[sec].orEmpty()
+        val list = updatePlaylistRow(all.map { it.playlistId }) { pid -> all.filter { it.playlistId == pid } } ?: all
         if (sec == Section.LIVE) {
             resultsRv.layoutManager = LinearLayoutManager(this)
             resultsRv.adapter = channelAdapter
@@ -392,9 +397,38 @@ class SearchActivity : BaseActivity() {
         }
         if (lastQuery.isEmpty()) { summary.text = ""; setEmpty("Type what you're looking for and press Search."); return }
         val word = when (sec) { Section.LIVE -> "channel"; Section.MOVIES -> "movie"; Section.SERIES -> "show" }
-        summary.text = if (list.size >= LIMIT) "First $LIMIT ${word}s matching \"$lastQuery\" in ${sec.title} – type more to narrow it down"
-                       else "${Fmt.count(list.size, word, word + "s")} matching \"$lastQuery\" in ${sec.title}"
+        summary.text = if (list.size >= LIMIT) "First $LIMIT ${word}s matching \"$lastQuery\" in ${sec.title}$inPlaylist – type more to narrow it down"
+                       else "${Fmt.count(list.size, word, word + "s")} matching \"$lastQuery\" in ${sec.title}$inPlaylist"
         if (list.isEmpty()) setEmpty("Nothing in ${sec.title} matches \"$lastQuery\".") else showList()
+    }
+
+    private val inPlaylist: String
+        get() = if (combined && shownPlaylist != null) " in ${playlistName(shownPlaylist!!)}" else ""
+
+    /**
+     * Combined playlists: one tab per playlist (with its number of results); only the chosen playlist's results
+     * are listed, so you don't scroll through one playlist to reach the next. Returns that playlist's results,
+     * or null when there is only one playlist.
+     */
+    private fun <T> updatePlaylistRow(ids: List<String>, only: (String) -> List<T>): List<T>? {
+        val scroll = findViewById<View>(R.id.playlistScroll)
+        val row = findViewById<android.widget.LinearLayout>(R.id.playlistRow)
+        if (!combined || lastQuery.isEmpty()) { scroll.visibility = View.GONE; return null }
+        val counts = ids.groupingBy { it }.eachCount()
+        // Stay on the chosen playlist if it has results here, otherwise the first one that does.
+        if (counts[shownPlaylist] == null) shownPlaylist = views.firstOrNull { (counts[it.id] ?: 0) > 0 }?.id ?: views.first().id
+        row.removeAllViews()
+        for (pl in views) {
+            val n = counts[pl.id] ?: 0
+            val chip = layoutInflater.inflate(R.layout.tab_chip, row, false) as TextView
+            chip.text = "${pl.name} ($n${if (n >= LIMIT) "+" else ""})"
+            chip.isSelected = pl.id == shownPlaylist
+            chip.alpha = if (n == 0) 0.5f else 1f
+            chip.setOnClickListener { shownPlaylist = pl.id; show(shown) }
+            row.addView(chip)
+        }
+        scroll.visibility = View.VISIBLE
+        return only(shownPlaylist!!)
     }
 
     private fun setEmpty(text: String) {
@@ -453,14 +487,14 @@ class SearchActivity : BaseActivity() {
             playlistId = ch.playlistId)
 
     private fun playChannel(position: Int, external: Boolean) {
-        val channels = results[Section.LIVE].orEmpty().filterIsInstance<LiveChannel>()
+        val channels = channelAdapter.items.filterIsInstance<LiveChannel>()
         if (channels.isEmpty()) return
         Launcher.play(this, channels.map { livePlayable(it) }, position, external = if (external) true else null,
             categoryName = "Search: $lastQuery")
     }
 
     private fun playGuideChannel(hit: GuideHit, external: Boolean) {
-        val channels = guideHits.map { it.channel }.distinctBy { "${it.playlistId}|${it.id}" }
+        val channels = guideAdapter.items.map { it.channel }.distinctBy { "${it.playlistId}|${it.id}" }
         val pos = channels.indexOfFirst { it === hit.channel || (it.id == hit.channel.id && it.playlistId == hit.channel.playlistId) }.coerceAtLeast(0)
         Launcher.play(this, channels.map { livePlayable(it) }, pos, external = if (external) true else null,
             categoryName = "EPG: $lastQuery")

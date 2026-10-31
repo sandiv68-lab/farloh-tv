@@ -37,6 +37,14 @@
                 android:visibility="gone" />
         </LinearLayout>
 
+        <!-- Combined playlists: choose the playlist first, then its results show. -->
+        <HorizontalScrollView android:id="@+id/playlistScroll" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:layout_marginTop="8dp" android:clipToPadding="false"
+            android:scrollbars="none" android:visibility="gone">
+            <LinearLayout android:id="@+id/playlistRow" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
+
         <TextView android:id="@+id/summary" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="8dp" android:textColor="@color/text2" android:textSize="13sp" />
 

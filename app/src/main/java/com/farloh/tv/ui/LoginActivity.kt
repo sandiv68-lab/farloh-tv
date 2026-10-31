@@ -117,7 +117,13 @@ class LoginActivity : BaseActivity() {
                 if (has) bringUp(v)
                 else v.post { if (fields.none { it.hasFocus() }) space.visibility = View.GONE }
             }
-            f.setOnClickListener { bringUp(it) } // keyboard opened again on a field that already had focus
+            // Keyboard opened again on a field that already had focus. (With a click handler set, Android no longer
+            // opens the keyboard itself when OK is pressed on a TV remote, so open it here.)
+            f.setOnClickListener {
+                bringUp(it)
+                (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager)
+                    .showSoftInput(it, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            }
         }
     }
 

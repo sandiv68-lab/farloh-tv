@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A filter "tab" made in code (e.g. one per playlist on the Search screen). -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android" style="@style/Tab"
+    android:layout_marginEnd="8dp" android:textSize="14sp" />
