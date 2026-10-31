@@ -13,8 +13,6 @@ import com.farloh.tv.data.Store
  */
 object AudioOutputs {
 
-    val supported get() = Build.VERSION.SDK_INT >= 23
-
     private val USEFUL: Set<Int> by lazy {
         val s = hashSetOf(
             AudioDeviceInfo.TYPE_HDMI, AudioDeviceInfo.TYPE_HDMI_ARC, AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,

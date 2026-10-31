@@ -491,11 +491,6 @@ class Store private constructor(context: Context) {
         cachedPlaylists = null
     }
 
-    fun clearAll() {
-        prefs.edit().clear().apply()
-        cachedPlaylists = null
-    }
-
     // ---- small delegates for app-wide prefs ----
     private inner class StringPref(val key: String, val def: String) : kotlin.properties.ReadWriteProperty<Any?, String> {
         override fun getValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>) = prefs.getString(key, def) ?: def

@@ -54,9 +54,9 @@ object Recorder {
                 throw e
             } catch (e: Exception) {
                 lastError = e.message
-                // The server doesn't give this channel as .ts: use its HLS stream instead.
-                if (!hls && out.length() == 0L && ++tsFailures >= 2) hls = true
             }
+            // Nothing at all came from the .ts stream (error or empty): use the channel's HLS stream instead.
+            if (!hls && out.length() == 0L && ++tsFailures >= 2) hls = true
             if (System.currentTimeMillis() >= endAt) break
             if (out.length() > before) drops++ // it was recording and the stream stopped: reconnect
             delay(if (out.length() > before) 1_000 else 4_000)

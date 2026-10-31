@@ -123,9 +123,6 @@ class BackupFlow(private val activity: BaseActivity) {
 
     fun startRestore() = picker.pick()
 
-    /** Backup file opened from a file manager ("Open with Farloh TV"). */
-    fun openFromUri(uri: Uri) = readFrom(uri)
-
     private fun share(uri: Uri) {
         val send = Intent(Intent.ACTION_SEND).setType("application/json")
             .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

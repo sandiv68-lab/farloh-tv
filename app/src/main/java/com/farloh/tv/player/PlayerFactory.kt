@@ -112,7 +112,7 @@ object PlayerFactory {
         return b.build()
     }
 
-    /** The stream (+ a subtitle downloaded from OpenSubtitles, if there is one). */
+    /** The stream (+ a subtitle downloaded with "Search online", if there is one). */
     fun mediaItem(p: Playable, subtitle: File? = null): MediaItem {
         val b = MediaItem.Builder().setUri(p.url).setMediaId(p.id)
         if (p.url.contains(".m3u8", ignoreCase = true)) b.setMimeType(MimeTypes.APPLICATION_M3U8)
@@ -120,7 +120,7 @@ object PlayerFactory {
             b.setSubtitleConfigurations(listOf(
                 MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(subtitle))
                     .setMimeType(MimeTypes.APPLICATION_SUBRIP)
-                    .setLabel("Downloaded (OpenSubtitles)")
+                    .setLabel("Downloaded")
                     .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
                     .build()
             ))

@@ -2,7 +2,6 @@ package com.farloh.tv.ui
 
 import android.app.Activity
 import android.content.Intent
-import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import com.farloh.tv.data.Account
 import com.farloh.tv.data.CatalogItem

@@ -1,6 +1,5 @@
 package com.farloh.tv.ui
 
-import android.content.Intent
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
@@ -60,7 +59,6 @@ class BrowseActivity : BaseActivity() {
     private val expanded = HashSet<String>()
 
     private lateinit var updated: TextView
-    private lateinit var refreshing: ProgressBar
     private lateinit var categoryButton: Button
     private lateinit var resultCount: TextView
     private lateinit var categoriesRv: RecyclerView
@@ -77,7 +75,6 @@ class BrowseActivity : BaseActivity() {
     private var currentCat = ALL
     private var wide = false
     private var favs: Set<String> = emptySet()
-    private var hidden: Set<String> = emptySet()
     private var visible: List<CatalogItem> = emptyList()
     private var recent: List<CatalogItem> = emptyList()
     private var stateSignature = ""
@@ -117,7 +114,6 @@ class BrowseActivity : BaseActivity() {
         setContentView(R.layout.activity_browse)
         wide = wideLayout
         updated = findViewById(R.id.updated)
-        refreshing = findViewById(R.id.refreshing)
         categoryButton = findViewById(R.id.categoryButton)
         resultCount = findViewById(R.id.resultCount)
         // Search now lives on the home screen (searches all sections at once).

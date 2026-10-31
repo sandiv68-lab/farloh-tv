@@ -42,8 +42,6 @@ import kotlinx.coroutines.withContext
 class SearchActivity : BaseActivity() {
 
     companion object {
-        /** Search for this straight away (typed on the home screen). */
-        const val EXTRA_QUERY = "query"
         private const val LIMIT = 1000
         private const val GUIDE = "guide"
         /** The saved guide covers about 36 hours ahead, so fetch it again after this. */
@@ -236,11 +234,6 @@ class SearchActivity : BaseActivity() {
         updateTabs()
         show(shown)
         query.requestFocus()
-        intent.getStringExtra(EXTRA_QUERY)?.takeIf { savedInstanceState == null && it.isNotBlank() }?.let { text ->
-            query.setText(text)
-            query.setSelection(text.length)
-            search()
-        }
     }
 
     /** Before the first search: the recent searches (if any). */
