@@ -196,9 +196,12 @@ class BrowseActivity : BaseActivity() {
         "az" to "A – Z", "za" to "Z – A",
     )
 
-    private fun sortMode() = store.sortFor(section, currentCat)
+    /** "All" isn't sorted (big playlists would hang); it stays in the provider's order. */
+    private fun sortMode() = if (currentCat == ALL) "server" else store.sortFor(section, currentCat)
 
     private fun updateSortButton() {
+        findViewById<Button>(R.id.sortButton).visibility =
+            if (section == Section.LIVE || currentCat == ALL) View.GONE else View.VISIBLE
         val label = sortModes.firstOrNull { it.first == sortMode() }?.second ?: "Default order"
         findViewById<Button>(R.id.sortButton).text = if (sortMode() == "server") "Sort" else "Sort: $label"
     }

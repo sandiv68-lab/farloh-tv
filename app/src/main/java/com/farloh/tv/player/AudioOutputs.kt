@@ -1,24 +1,15 @@
 package com.farloh.tv.player
 
 import android.content.Context
-import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
-import android.media.AudioFormat
 import android.media.AudioManager
-import android.media.AudioTrack
 import android.os.Build
 import androidx.annotation.RequiresApi
 import com.farloh.tv.data.Store
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
-import kotlin.math.PI
-import kotlin.math.sin
 
 /**
- * Sound outputs on a TV box (TV / HDMI, soundbar, Bluetooth, USB…), Android 6+.
- * Each player can be sent to its own output; whether two outputs play at the same time depends on the box,
- * which [testTwo] checks.
+ * Sound outputs (TV / HDMI, soundbar, Bluetooth, USB, headphones…), Android 6+.
+ * The player sends its sound to the output chosen in its Settings menu.
  */
 object AudioOutputs {
 
@@ -73,58 +64,5 @@ object AudioOutputs {
         if (Build.VERSION.SDK_INT < 23) return null
         val want = Store.get(ctx).audioOutput.ifBlank { return null }
         return list(ctx).firstOrNull { key(it) == want }
-    }
-
-    /** What Android says a test tone actually went to. */
-    class TestResult(val first: String, val second: String, val firstRoutedTo: String?, val secondRoutedTo: String?)
-
-    /**
-     * Plays a low tone on [a] and a high tone on [b] at the same time for a few seconds.
-     * Returns where Android really sent each one (Android 7+), so the result doesn't depend only on your ears.
-     */
-    @RequiresApi(23)
-    suspend fun testTwo(a: AudioDeviceInfo, b: AudioDeviceInfo, seconds: Int = 5): TestResult = withContext(Dispatchers.IO) {
-        val low = tone(330.0, seconds)
-        val high = tone(1320.0, seconds)
-        val ta = track(low.size).apply { setPreferredDevice(a) }
-        val tb = track(high.size).apply { setPreferredDevice(b) }
-        try {
-            ta.write(low, 0, low.size)
-            tb.write(high, 0, high.size)
-            ta.play(); tb.play()
-            delay(700) // routing is settled once playing
-            val ra = if (Build.VERSION.SDK_INT >= 24) ta.routedDevice?.let { label(it) } else null
-            val rb = if (Build.VERSION.SDK_INT >= 24) tb.routedDevice?.let { label(it) } else null
-            delay(seconds * 1000L - 700)
-            TestResult(label(a), label(b), ra, rb)
-        } finally {
-            runCatching { ta.stop() }; runCatching { tb.stop() }
-            ta.release(); tb.release()
-        }
-    }
-
-    private const val RATE = 48_000
-
-    @RequiresApi(23)
-    private fun track(samples: Int) = AudioTrack.Builder()
-        .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
-            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-        .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-            .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
-        .setTransferMode(AudioTrack.MODE_STATIC)
-        .setBufferSizeInBytes(samples * 2)
-        .build()
-
-    /** A stereo beep pattern (½ s on, ¼ s off) so the two tones are easy to tell apart. */
-    private fun tone(freq: Double, seconds: Int): ShortArray {
-        val frames = RATE * seconds
-        val out = ShortArray(frames * 2)
-        for (i in 0 until frames) {
-            val t = i.toDouble() / RATE
-            val on = (t % 0.75) < 0.5
-            val v = if (on) (sin(2 * PI * freq * t) * 0.35 * Short.MAX_VALUE).toInt().toShort() else 0
-            out[2 * i] = v; out[2 * i + 1] = v
-        }
-        return out
     }
 }

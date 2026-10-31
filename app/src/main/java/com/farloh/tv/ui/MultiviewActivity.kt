@@ -88,15 +88,6 @@ class MultiviewActivity : BaseActivity() {
     private var selected = 0
     /** The window whose sound is heard (stays on the last window that has something playing). */
     private var soundSlot = 0
-    /**
-     * TV boxes: a second window can play its sound on another output at the same time (e.g. Bluetooth
-     * headphones), chosen by holding OK on it. While it's on, the main sound stays where it is instead of
-     * following the selection. −1 = off.
-     */
-    private var secondSlot = -1
-    private var secondDevice: android.media.AudioDeviceInfo? = null
-    private var okDownAt = 0L
-    private var okHeld = false
     private var rects: List<RectF> = emptyList()
     private var leaving = false
 
@@ -132,8 +123,8 @@ class MultiviewActivity : BaseActivity() {
             override fun handleOnBackPressed() = exitTo(selected)
         })
 
-        showHint(if (tvMode) "Arrows: choose a window (sound follows)   •   OK: options   •   Hold OK: sound   •   Menu: layouts   •   Back: exit"
-                 else "Tap: choose a window (sound follows)   •   Tap again or hold: options")
+        showHint(if (tvMode) "Arrows: choose a window (sound follows)   •   OK: options   •   Menu: layouts   •   Back: exit"
+                 else "Tap: choose a window (sound follows)   •   Tap again or hold: options   •   Pinch: zoom to fill the screen")
         // Start filling the next window straight away.
         if (visibleCount > 1) handler.postDelayed({ if (!isFinishing && slots[1].empty) { select(1); pickContent(1) } }, 700)
     }
@@ -163,6 +154,61 @@ class MultiviewActivity : BaseActivity() {
         }
     }
 
+    // ---------------- Pinch to zoom (phones) ----------------
+
+    /** Phones: pinch to zoom the whole Multiview in (to fill a long screen) or back out; 1 = everything visible. */
+    private var zoom = 1f
+
+    /** The zoom at which the windows fill the screen (no black bars at the sides or top and bottom). */
+    private fun fillZoom(): Float {
+        val w = stage.width.toFloat(); val h = stage.height.toFloat()
+        if (w <= 0 || h <= 0) return 1f
+        val scale = minOf(w / MvLayouts.REF_W, h / MvLayouts.REF_H)
+        return maxOf(w / (MvLayouts.REF_W * scale), h / (MvLayouts.REF_H * scale))
+    }
+
+    private fun setZoom(z: Float) {
+        val fill = fillZoom()
+        val max = maxOf(fill, 1f) * 1.5f
+        var v = z.coerceIn(1f, max)
+        if (kotlin.math.abs(v - fill) < 0.04f) v = fill // snaps to "fill the screen"
+        if (v < 1.03f) v = 1f
+        zoom = v
+        stage.pivotX = stage.width / 2f
+        stage.pivotY = stage.height / 2f
+        stage.scaleX = v
+        stage.scaleY = v
+    }
+
+    private val scaler by lazy {
+        android.view.ScaleGestureDetector(this, object : android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(detector: android.view.ScaleGestureDetector): Boolean {
+                setZoom(zoom * detector.scaleFactor); return true
+            }
+        })
+    }
+    private var pinching = false
+
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (tvMode) return super.dispatchTouchEvent(ev)
+        scaler.onTouchEvent(ev)
+        if (ev.pointerCount > 1 || scaler.isInProgress) {
+            if (!pinching) {
+                // Two fingers: it's a pinch, not a tap on a window.
+                pinching = true
+                val cancel = android.view.MotionEvent.obtain(ev).apply { action = android.view.MotionEvent.ACTION_CANCEL }
+                super.dispatchTouchEvent(cancel)
+                cancel.recycle()
+            }
+            return true
+        }
+        if (pinching) {
+            if (ev.actionMasked == android.view.MotionEvent.ACTION_UP || ev.actionMasked == android.view.MotionEvent.ACTION_CANCEL) pinching = false
+            return true
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
     // ---------------- Layout ----------------
 
     /** Places the windows of the current layout (in order, so the small ones sit on top of the main one). */
@@ -179,6 +225,7 @@ class MultiviewActivity : BaseActivity() {
             stage.addView(slots[i].root, lp)
         }
         updateBorders()
+        if (zoom != 1f) stage.post { setZoom(zoom) }
     }
 
     private fun setLayout(n: Int) {
@@ -199,7 +246,7 @@ class MultiviewActivity : BaseActivity() {
     private fun select(i: Int) {
         if (i !in 0 until visibleCount) return
         selected = i
-        if (!slots[i].empty && secondSlot < 0) soundSlot = i
+        if (!slots[i].empty) soundSlot = i
         updateBorders()
         applySound()
         flashLabel(slots[i])
@@ -208,12 +255,7 @@ class MultiviewActivity : BaseActivity() {
     private fun updateBorders() {
         slots.forEachIndexed { i, s ->
             // Only the selected window gets an outline (orange); the others have none.
-            // The second-sound window (another output) has a dashed blue one.
-            when (i) {
-                selected -> s.border.setBackgroundResource(R.drawable.mv_border_selected)
-                secondSlot -> s.border.setBackgroundResource(R.drawable.mv_border_second)
-                else -> s.border.background = null
-            }
+            if (i == selected) s.border.setBackgroundResource(R.drawable.mv_border_selected) else s.border.background = null
         }
         showOutlines()
     }
@@ -235,14 +277,12 @@ class MultiviewActivity : BaseActivity() {
      * that is playing, even "muted", the TV can't play any other sound – so a muted movie silenced Live TV.
      */
     private fun applySound() {
-        if (secondSlot == soundSlot || slots.getOrNull(secondSlot)?.empty == true) { secondSlot = -1; secondDevice = null }
-        val mainDevice = if (android.os.Build.VERSION.SDK_INT >= 23) com.farloh.tv.player.AudioOutputs.preferred(this) else null
+        // The sound output chosen in the player (Settings → Sound output), if it's connected.
+        val output = if (android.os.Build.VERSION.SDK_INT >= 23) com.farloh.tv.player.AudioOutputs.preferred(this) else null
         slots.forEachIndexed { i, s ->
             val exo = s.player ?: return@forEachIndexed
-            val on = i == soundSlot || i == secondSlot
-            if (android.os.Build.VERSION.SDK_INT >= 23) {
-                exo.setPreferredAudioDevice(if (i == secondSlot) secondDevice else mainDevice)
-            }
+            if (android.os.Build.VERSION.SDK_INT >= 23) exo.setPreferredAudioDevice(output)
+            val on = i == soundSlot
             exo.volume = if (on) 1f else 0f
             val params = exo.trackSelectionParameters
             if (params.disabledTrackTypes.contains(C.TRACK_TYPE_AUDIO) == on) {
@@ -425,52 +465,13 @@ class MultiviewActivity : BaseActivity() {
             opts += "Previous channel" to { step(i, -1) }
         }
         if (p.kind == Kind.EPISODE && s.index + 1 < s.items.size) opts += "Next episode" to { step(i, +1) }
-        if (!tvMode && android.os.Build.VERSION.SDK_INT >= 23) opts += "Sound…" to { soundMenu(i) } // TV: hold OK
         opts += "Change layout…" to { chooseLayout() }
         opts += "Watch this full screen (leave Multiview)" to { exitTo(i) }
         if (i > 0) opts += "Swap with the main window" to { swap(0, i) }
-        if (i > 0) opts += "Empty this window" to {
-            clear(s); if (soundSlot == i) soundSlot = 0; if (secondSlot == i) secondSlot = -1; applySound(); updateBorders()
-        }
+        if (i > 0) opts += "Empty this window" to { clear(s); if (soundSlot == i) soundSlot = 0; applySound() }
         opts += "Leave Multiview" to { exitTo(0) }
         AlertDialog.Builder(this)
             .setTitle(listOfNotNull(p.subtitle, p.title).joinToString(" – "))
-            .setItems(opts.map { it.first }.toTypedArray()) { _, which -> opts[which].second() }
-            .setNegativeButton("Close", null)
-            .show()
-    }
-
-    /** Hold OK on a window (phones: Sound… in its options): where its sound goes. */
-    private fun soundMenu(i: Int) {
-        if (i !in 0 until visibleCount) return
-        val s = slots[i]
-        if (s.empty) { pickContent(i); return }
-        if (android.os.Build.VERSION.SDK_INT < 23) { toast("Needs Android 6 or newer"); return }
-        val outputs = com.farloh.tv.player.AudioOutputs.list(this)
-        val label = com.farloh.tv.player.AudioOutputs::label
-        val opts = ArrayList<Pair<String, () -> Unit>>()
-        opts += (if (i == soundSlot) "✓  " else "     ") + "Main sound here" to {
-            soundSlot = i
-            if (secondSlot == i) { secondSlot = -1; secondDevice = null }
-            applySound(); updateBorders()
-        }
-        if (i != soundSlot) {
-            val main = com.farloh.tv.player.AudioOutputs.preferred(this)
-            for (d in outputs) {
-                if (main != null && com.farloh.tv.player.AudioOutputs.key(d) == com.farloh.tv.player.AudioOutputs.key(main)) continue
-                val on = i == secondSlot && secondDevice?.let { com.farloh.tv.player.AudioOutputs.key(it) } == com.farloh.tv.player.AudioOutputs.key(d)
-                opts += (if (on) "✓  " else "     ") + "Second sound here → ${label(d)}" to {
-                    secondSlot = i; secondDevice = d
-                    applySound(); updateBorders()
-                    showHint("Second sound: ${label(d)}. Main sound stays on window ${soundSlot + 1}. " +
-                        "If both play on the same speaker, this box can't do two outputs (test it in the player's Sound output menu).")
-                }
-            }
-            if (outputs.size < 2) opts += "     (Pair Bluetooth headphones or a speaker for a second sound)" to { }
-        }
-        if (secondSlot >= 0) opts += "     Second sound off" to { secondSlot = -1; secondDevice = null; applySound(); updateBorders() }
-        AlertDialog.Builder(this)
-            .setTitle("Sound – window ${i + 1}")
             .setItems(opts.map { it.first }.toTypedArray()) { _, which -> opts[which].second() }
             .setNegativeButton("Close", null)
             .show()
@@ -499,7 +500,6 @@ class MultiviewActivity : BaseActivity() {
     private fun swap(a: Int, b: Int) {
         val t = slots[a]; slots[a] = slots[b]; slots[b] = t
         if (soundSlot == a) soundSlot = b else if (soundSlot == b) soundSlot = a
-        if (secondSlot == a) secondSlot = b else if (secondSlot == b) secondSlot = a
         selected = a
         arrange()
         applySound()
@@ -529,19 +529,6 @@ class MultiviewActivity : BaseActivity() {
     // ---------------- Remote control ----------------
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        val ok = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER ||
-            event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
-        // OK: press = window options; hold (TV boxes) = sound menu (main / second sound on another output).
-        if (ok && tvMode) {
-            when (event.action) {
-                KeyEvent.ACTION_DOWN -> {
-                    if (event.repeatCount == 0) { okHeld = false; okDownAt = event.eventTime }
-                    else if (!okHeld && event.eventTime - okDownAt >= 500) { okHeld = true; soundMenu(selected) }
-                }
-                KeyEvent.ACTION_UP -> if (!okHeld) options(selected)
-            }
-            return true
-        }
         if (event.action != KeyEvent.ACTION_DOWN) return super.dispatchKeyEvent(event)
         when (event.keyCode) {
             KeyEvent.KEYCODE_DPAD_LEFT -> { showOutlines(); move(-1, 0); return true }

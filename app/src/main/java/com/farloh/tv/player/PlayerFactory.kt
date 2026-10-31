@@ -76,6 +76,16 @@ object PlayerFactory {
                     .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                     .setAudioProcessors(arrayOf(delay))
                     .build()
+
+            // Subtitle sync: the subtitle renderer(s) can run a little ahead of / behind the picture.
+            override fun buildTextRenderers(
+                context: Context, output: androidx.media3.exoplayer.text.TextOutput, outputLooper: android.os.Looper,
+                extensionRendererMode: Int, out: ArrayList<androidx.media3.exoplayer.Renderer>,
+            ) {
+                val first = out.size
+                super.buildTextRenderers(context, output, outputLooper, extensionRendererMode, out)
+                for (i in first until out.size) out[i] = SubtitleDelay.Renderer(out[i])
+            }
         }
             .setMediaCodecSelector(selector)
             .setEnableDecoderFallback(multiview || mode != "hw")

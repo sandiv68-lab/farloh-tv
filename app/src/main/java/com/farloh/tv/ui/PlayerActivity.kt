@@ -68,6 +68,7 @@ import com.farloh.tv.net.Net
 import com.farloh.tv.player.AudioDelayProcessor
 import com.farloh.tv.player.External
 import com.farloh.tv.player.PlayerFactory
+import com.farloh.tv.player.SubtitleDelay
 import com.farloh.tv.player.Kind
 import com.farloh.tv.player.PlayQueue
 import com.farloh.tv.player.Playable
@@ -400,6 +401,8 @@ class PlayerActivity : BaseActivity() {
         playerView.setShowNextButton(true)
         playerView.setShowPreviousButton(true)
         playerView.controllerShowTimeoutMs = 6000
+        // Moving along the time bar with the remote: 1 minute per press (the ⏩ button still jumps 15 s).
+        playerView.findViewById<androidx.media3.ui.DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)?.setKeyTimeIncrement(60_000L)
         // Movies & shows: the controls and the bottom panel appear and disappear together (like Live TV),
         // instead of the panel sliding away in steps.
         playerView.setControllerAnimationEnabled(false)
@@ -805,6 +808,10 @@ class PlayerActivity : BaseActivity() {
                 handler.postDelayed({ updateActions() }, 300)
             }
         }
+        if (groups.isNotEmpty()) {
+            labels += "     Subtitle sync: ${syncLabel(SubtitleDelay.offsetMs)}"
+            actions += { subtitleSyncDialog() }
+        }
         if (!isLive) {
             labels += "     Search online…"
             actions += { searchSubtitles() }
@@ -903,6 +910,7 @@ class PlayerActivity : BaseActivity() {
     private fun playCurrent(resume: Boolean) {
         val exo = player ?: return
         videoDecoder = ""; audioDecoder = ""; droppedFrames = 0
+        SubtitleDelay.offsetMs = 0 // subtitle sync is for one video
         val p = current
         retries = 0
         handler.removeCallbacks(reconnectRunnable)
@@ -1377,8 +1385,7 @@ class PlayerActivity : BaseActivity() {
         if (!isLive && exo != null) opts += "Playback speed: ${speedLabel(exo.playbackParameters.speed)}" to { chooseSpeed() }
         opts += "Audio track" to { trackDialog(C.TRACK_TYPE_AUDIO, "Audio track") }
         if (Build.VERSION.SDK_INT >= 23) opts += "Sound output: ${AudioOutputs.preferred(this)?.let { AudioOutputs.label(it) } ?: "Automatic"}" to {
-            SoundOutputs.choose(this, onChange = { d -> player?.setPreferredAudioDevice(d) },
-                pause = { player?.pause() }, resume = { player?.play() })
+            SoundOutputs.choose(this) { d -> player?.setPreferredAudioDevice(d) }
         }
         opts += "Audio sync: ${if (store.audioDelayMs == 0) "0 ms" else "%+d ms".format(store.audioDelayMs)}" to { audioSyncDialog() }
         opts += "Subtitles" to { subtitleMenu() }
@@ -1596,6 +1603,64 @@ class PlayerActivity : BaseActivity() {
     }
 
     /** Audio sync: move the sound earlier or later than the picture, 50 ms at a time. */
+    private fun syncLabel(ms: Int) = if (ms == 0) "0 ms" else "%+.1f s".format(java.util.Locale.US, ms / 1000f)
+
+    /** Subtitles → Subtitle sync: move the lines later (+) or earlier (−) than the picture, for this video. */
+    private fun subtitleSyncDialog() {
+        fun describe(ms: Int) = when {
+            ms == 0 -> "In sync (0 ms)"
+            ms > 0 -> "Subtitles ${syncLabel(ms).drop(1)} later"
+            else -> "Subtitles ${syncLabel(ms).drop(1)} earlier"
+        }
+        val text = TextView(this).apply {
+            setTextColor(androidx.core.content.ContextCompat.getColor(this@PlayerActivity, R.color.text))
+            textSize = 18f
+            setPadding(dp(24), dp(12), dp(24), dp(4))
+            text = describe(SubtitleDelay.offsetMs)
+        }
+        val hint = TextView(this).apply {
+            setTextColor(androidx.core.content.ContextCompat.getColor(this@PlayerActivity, R.color.text2))
+            textSize = 13f
+            setPadding(dp(24), dp(4), dp(24), dp(8))
+            this.text = "Subtitles coming too early? Press +. Too late? Press −. For this video only."
+        }
+        fun change(to: Int) {
+            SubtitleDelay.offsetMs = to.coerceIn(-30_000, 30_000)
+            text.text = describe(SubtitleDelay.offsetMs)
+        }
+        val row = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+            setPadding(dp(16), dp(4), dp(16), dp(8))
+            for ((label, by) in listOf("− 1 s" to -1000, "− 0.1 s" to -100, "+ 0.1 s" to 100, "+ 1 s" to 1000)) {
+                addView(android.widget.Button(this@PlayerActivity, null, 0, R.style.Btn).apply {
+                    this.text = label
+                    isAllCaps = false
+                    textSize = 14f
+                    setPadding(dp(6), 0, dp(6), 0)
+                    setOnClickListener { change(SubtitleDelay.offsetMs + by) }
+                }, android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = dp(4); marginEnd = dp(4)
+                })
+            }
+        }
+        val box = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            addView(text); addView(row); addView(hint)
+        }
+        val d = AlertDialog.Builder(this)
+            .setTitle("Subtitle sync")
+            .setView(box)
+            .setPositiveButton("Done", null)
+            .setNeutralButton("Reset", null)
+            .create()
+        d.setOnShowListener {
+            d.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener { change(0) }
+            row.getChildAt(2)?.requestFocus()
+        }
+        d.show()
+    }
+
     private fun audioSyncDialog() {
         fun describe(ms: Int) = when {
             ms == 0 -> "In sync (0 ms)"
