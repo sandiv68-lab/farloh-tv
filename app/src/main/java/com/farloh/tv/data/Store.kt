@@ -319,10 +319,6 @@ class Store private constructor(context: Context) {
     /** Minutes recorded before the start / after the end of the programme (in case it runs off schedule). */
     var recPadBeforeMin: Int by IntPref("rec_pad_before", 2)
     var recPadAfterMin: Int by IntPref("rec_pad_after", 5)
-    /** "default" or "low" (480p) for new recordings. */
-    var recQuality: String by StringPref("rec_quality", "default")
-    /** The phone tip about battery savers and recordings was shown. */
-    var recPhoneTipShown: Boolean by BoolPref("rec_phone_tip", false)
     /** Folder recordings are saved to; "" = device storage. */
     var recFolder: String by StringPref("rec_folder", "")
 

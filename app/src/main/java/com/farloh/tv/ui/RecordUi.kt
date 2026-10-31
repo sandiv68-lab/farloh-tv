@@ -35,7 +35,6 @@ object RecordUi {
         var start: Long,
         var end: Long,
         var days: Set<Int> = emptySet(),
-        var quality: String,
     )
 
     private val DAY_NAMES = listOf(Calendar.MONDAY to "Mon", Calendar.TUESDAY to "Tue", Calendar.WEDNESDAY to "Wed",
@@ -67,7 +66,7 @@ object RecordUi {
     fun fromProgramme(activity: BaseActivity, channel: Playable, p: Programme) {
         if (p.end <= System.currentTimeMillis()) { activity.toast("That programme has finished"); return }
         edit(activity, Draft(null, channel.id, channel.title, channel.logo, channel.playlistId, p.title.ifBlank { channel.title },
-            p.start, p.end, quality = activity.store.recQuality))
+            p.start, p.end))
     }
 
     /** Player → Settings → Record: now (until the programme ends, or for a while), or set one up for later. */
@@ -91,7 +90,7 @@ object RecordUi {
         opts += "Set up a recording on this channel…" to {
             val start = roundUp(System.currentTimeMillis())
             edit(activity, Draft(null, channel.id, channel.title, channel.logo, channel.playlistId, channel.title,
-                start, start + 3600_000L, quality = activity.store.recQuality))
+                start, start + 3600_000L))
         }
         AlertDialog.Builder(activity)
             .setTitle("Record – ${channel.title}")
@@ -105,19 +104,18 @@ object RecordUi {
         MvPicker(activity, liveOnly = true) { items, index, _ ->
             val ch = items.getOrNull(index) ?: return@MvPicker
             val start = roundUp(System.currentTimeMillis())
-            edit(activity, Draft(null, ch.id, ch.title, ch.logo, ch.playlistId, ch.title, start, start + 3600_000L,
-                quality = activity.store.recQuality), onSaved)
+            edit(activity, Draft(null, ch.id, ch.title, ch.logo, ch.playlistId, ch.title, start, start + 3600_000L), onSaved)
         }.start()
     }
 
     fun editSchedule(activity: BaseActivity, s: RecSchedule, onSaved: () -> Unit = {}) {
-        edit(activity, Draft(s.id, s.channelId, s.channelName, s.logo, s.playlistId, s.title, s.startMs, s.endMs, s.days, s.quality), onSaved)
+        edit(activity, Draft(s.id, s.channelId, s.channelName, s.logo, s.playlistId, s.title, s.startMs, s.endMs, s.days), onSaved)
     }
 
     private fun startNow(activity: BaseActivity, channel: Playable, title: String, end: Long) {
         val now = System.currentTimeMillis()
         val s = RecSchedule(channelId = channel.id, channelName = channel.title, logo = channel.logo, playlistId = channel.playlistId,
-            title = title, startMs = now, endMs = end, quality = activity.store.recQuality, now = true)
+            title = title, startMs = now, endMs = end, now = true)
         beforeSaving(activity, s) {
             Recordings.saveSchedule(activity, s)
             RecordScheduler.reschedule(activity)
@@ -163,10 +161,6 @@ object RecordUi {
             }
         }
         rows += "Repeat:  ${repeatLabel(d.days)}" to { chooseRepeat(activity, d, again) }
-        rows += "Quality:  ${if (d.quality == "low") "Low (480p)" else "Default (as broadcast)"}" to {
-            Dialogs.choose(activity, "Quality", listOf("Default (as broadcast)", "Low (480p) – smaller files, made after the recording ends"),
-                listOf("default", "low"), d.quality) { d.quality = it; again() }
-        }
         val pad = "Records ${st.recPadBeforeMin} min early and ${st.recPadAfterMin} min late (Settings → Recordings)."
         AlertDialog.Builder(activity)
             .setTitle("${if (d.id == null) "Record" else "Edit recording"} – ${d.channelName}")
@@ -272,7 +266,7 @@ object RecordUi {
         if (d.days.isEmpty() && d.end <= System.currentTimeMillis()) { activity.toast("That time has already passed"); edit(activity, d, onSaved); return }
         val s = RecSchedule(
             id = d.id ?: java.util.UUID.randomUUID().toString(), channelId = d.channelId, channelName = d.channelName,
-            logo = d.logo, playlistId = d.playlistId, title = d.title, startMs = d.start, endMs = d.end, days = d.days, quality = d.quality,
+            logo = d.logo, playlistId = d.playlistId, title = d.title, startMs = d.start, endMs = d.end, days = d.days,
         )
         beforeSaving(activity, s) {
             Recordings.saveSchedule(activity, s)
@@ -301,12 +295,16 @@ object RecordUi {
                 .setNegativeButton("Not now") { _, _ -> next() }
                 .setCancelable(false).show()
         }
-        if (!activity.tvMode && !activity.store.recPhoneTipShown) steps += { next ->
-            activity.store.recPhoneTipShown = true
-            AlertDialog.Builder(activity).setTitle("Recording on a phone")
-                .setMessage("Battery savers can stop recordings on phones. For the best results keep the phone charging and " +
-                    "allow Farloh TV to run in the background (Settings → Apps → Farloh TV → Battery → Unrestricted).")
-                .setPositiveButton("OK") { _, _ -> next() }
+        // The box stays powered (on USB) when the TV is off: Android must let Farloh keep running then.
+        if (!runsInBackground(activity)) steps += { next ->
+            AlertDialog.Builder(activity).setTitle("Let Farloh TV run in the background")
+                .setMessage("Recordings happen while you're not using the app, and while the TV is switched off. " +
+                    "Allow Farloh TV to run in the background (no battery limits) so Android doesn't stop them.\n\n" +
+                    (if (activity.tvMode) "Also keep the box plugged in. If the box has Settings → System → Power & energy → " +
+                        "Energy modes, don't choose \"Low energy\", which switches the internet off in standby."
+                    else "Phones: keep it charging while recording."))
+                .setPositiveButton("Allow") { _, _ -> askBackground(activity); next() }
+                .setNegativeButton("Not now") { _, _ -> next() }
                 .setCancelable(false).show()
         }
         fun run(i: Int) { if (i >= steps.size) then() else steps[i] { run(i + 1) } }
@@ -324,6 +322,27 @@ object RecordUi {
         }
         val running = Recordings.files(activity).count { it.state == "recording" && it.end > a && it.scheduleId != s.id }
         return others + running
+    }
+
+    /** Android isn't limiting Farloh in the background (battery optimisation off for it). */
+    fun runsInBackground(ctx: android.content.Context): Boolean =
+        Build.VERSION.SDK_INT < 23 || (ctx.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager)
+            .isIgnoringBatteryOptimizations(ctx.packageName)
+
+    /** Asks Android to let Farloh run in the background (falls back to the settings screens). */
+    @android.annotation.SuppressLint("BatteryLife")
+    fun askBackground(activity: BaseActivity) {
+        if (Build.VERSION.SDK_INT < 23) return
+        val pkg = Uri.parse("package:${activity.packageName}")
+        val tries = listOf(
+            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, pkg),
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg),
+        )
+        for (i in tries) {
+            try { activity.startActivity(i); return } catch (e: Exception) { }
+        }
+        activity.toast("Open the device's Settings → Apps → Farloh TV and allow it to run in the background", long = true)
     }
 
     fun openAlarmSettings(activity: BaseActivity) {

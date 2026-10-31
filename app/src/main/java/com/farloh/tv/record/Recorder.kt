@@ -1,18 +1,5 @@
 package com.farloh.tv.record
 
-import android.content.Context
-import android.net.Uri
-import androidx.annotation.OptIn
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.effect.Presentation
-import androidx.media3.transformer.Composition
-import androidx.media3.transformer.EditedMediaItem
-import androidx.media3.transformer.Effects
-import androidx.media3.transformer.ExportException
-import androidx.media3.transformer.ExportResult
-import androidx.media3.transformer.Transformer
 import com.farloh.tv.data.Account
 import com.farloh.tv.data.Recordings
 import com.farloh.tv.net.Net
@@ -22,7 +9,6 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -32,8 +18,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 /**
  * Saves a live channel to a file until a given time. Uses the channel's .ts stream (appending after every
@@ -163,29 +147,4 @@ object Recorder {
             if (!r.isSuccessful) throw HttpError(r.code)
             r.body?.bytes() ?: ByteArray(0)
         }
-
-    /** Low quality: a 480p copy (H.264 + AAC in .mp4) made after the recording ends. */
-    @OptIn(UnstableApi::class)
-    suspend fun to480p(ctx: Context, input: File, output: File) = withContext(Dispatchers.Main) {
-        suspendCancellableCoroutine { cont ->
-            val transformer = Transformer.Builder(ctx)
-                .setVideoMimeType(MimeTypes.VIDEO_H264)
-                .setAudioMimeType(MimeTypes.AUDIO_AAC)
-                .addListener(object : Transformer.Listener {
-                    override fun onCompleted(composition: Composition, exportResult: ExportResult) {
-                        if (cont.isActive) cont.resume(Unit)
-                    }
-
-                    override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {
-                        if (cont.isActive) cont.resumeWithException(exportException)
-                    }
-                })
-                .build()
-            val item = EditedMediaItem.Builder(MediaItem.fromUri(Uri.fromFile(input)))
-                .setEffects(Effects(listOf(), listOf(Presentation.createForHeight(480))))
-                .build()
-            transformer.start(item, output.absolutePath)
-            cont.invokeOnCancellation { runCatching { transformer.cancel() } }
-        }
-    }
 }

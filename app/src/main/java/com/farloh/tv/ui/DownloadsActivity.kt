@@ -185,7 +185,7 @@ class DownloadsActivity : BaseActivity() {
         val rows = ArrayList<RecRow>()
         rows += RecRow.New
         val files = Recordings.files(this)
-        files.filter { it.state == "recording" || it.state == "converting" }.sortedBy { it.end }.forEach { rows += RecRow.File(it) }
+        files.filter { it.state == "recording" }.sortedBy { it.end }.forEach { rows += RecRow.File(it) }
         Recordings.schedules(this)
             .map { it to RecordScheduler.upcoming(this, it) }
             .filter { (s, next) -> next != null && files.none { f -> f.scheduleId == s.id && f.occurrence == next && f.state == "recording" } }
@@ -227,7 +227,6 @@ class DownloadsActivity : BaseActivity() {
                 status.text = listOfNotNull(
                     next?.let { "⏰ " + RecordUi.whenLabel(this, it, it + s.durationMs) },
                     if (s.repeats) RecordUi.repeatLabel(s.days) else null,
-                    if (s.quality == "low") "480p" else null,
                 ).joinToString("  •  ")
             }
             is RecRow.File -> {
@@ -244,7 +243,6 @@ class DownloadsActivity : BaseActivity() {
                         bar.progress = (((System.currentTimeMillis() - f.start) * 100) / total).toInt().coerceIn(0, 100)
                         "● Recording  •  $sz  •  until ${Fmt.time(this, f.end)}"
                     }
-                    "converting" -> "Making the 480p copy…  •  $sz"
                     "done" -> "✓ Recorded  •  $sz" + (if (f.notes.isNotBlank()) "  •  ${f.notes}" else "")
                     else -> "✗ Not recorded" + (if (f.notes.isNotBlank()) "  •  ${f.notes}" else "")
                 }
@@ -298,7 +296,7 @@ class DownloadsActivity : BaseActivity() {
                     opts += "Play" to { playRecording(f, external = false) }
                     opts += "Open in external" to { playRecording(f, external = true) }
                 }
-                if (f.state != "recording" && f.state != "converting") opts += "Delete" to {
+                if (f.state != "recording") opts += "Delete" to {
                     Dialogs.confirm(this, "Delete ${f.title}?", "The recording will be removed from this device.", "Delete") {
                         Recordings.deleteFile(this, f); reload()
                     }

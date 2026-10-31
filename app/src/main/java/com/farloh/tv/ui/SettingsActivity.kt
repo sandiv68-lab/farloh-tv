@@ -329,7 +329,7 @@ class SettingsActivity : BaseActivity() {
         }
 
         r += Row.Header("Recordings", "recordings", R.drawable.ic_record,
-            "${store.recPadBeforeMin} min early, ${store.recPadAfterMin} min late • ${if (store.recQuality == "low") "480p" else "default quality"}")
+            "${store.recPadBeforeMin} min early, ${store.recPadAfterMin} min late")
         r += Row.Item("Scheduled & recorded", "${com.farloh.tv.data.Recordings.schedules(this).size} set up",
             "Set up new recordings, see what's recorded (also in Downloads → Recordings)") {
             startActivity(android.content.Intent(this, DownloadsActivity::class.java)
@@ -347,12 +347,6 @@ class SettingsActivity : BaseActivity() {
                 store.recPadAfterMin = it; com.farloh.tv.record.RecordScheduler.reschedule(this); refresh()
             }
         }
-        r += Row.Item("Quality for new recordings", if (store.recQuality == "low") "Low (480p)" else "Default",
-            "Low makes a smaller 480p copy after the recording ends (takes a while on TV boxes)") {
-            Dialogs.choose(this, "Quality", listOf("Default (as broadcast)", "Low (480p)"), listOf("default", "low"), store.recQuality) {
-                store.recQuality = it; refresh()
-            }
-        }
         val locations = com.farloh.tv.data.Recordings.locations(this)
         val current = com.farloh.tv.data.Recordings.folder(this)
         r += Row.Item("Save recordings to", locations.firstOrNull { it.second.path == current?.path }?.first ?: "Device storage",
@@ -364,6 +358,13 @@ class SettingsActivity : BaseActivity() {
             Dialogs.choose(this, "Save recordings to", labels, locations.map { it.second.path }, current?.path ?: "") { path ->
                 store.recFolder = if (path == locations.firstOrNull()?.second?.path) "" else path
                 refresh()
+            }
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 23) {
+            val bg = RecordUi.runsInBackground(this)
+            r += Row.Item("Run in the background", if (bg) "Allowed" else "Not allowed",
+                "Needed so recordings carry on while you're not using the app or the TV is off") {
+                if (bg) toast("Already allowed") else RecordUi.askBackground(this)
             }
         }
         if (android.os.Build.VERSION.SDK_INT >= 31) {

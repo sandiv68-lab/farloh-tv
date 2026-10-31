@@ -24,8 +24,6 @@ data class RecSchedule(
     val startMs: Long,
     val endMs: Long,
     val days: Set<Int> = emptySet(),
-    /** "default" = as broadcast, "low" = 480p. */
-    val quality: String = "default",
     /** Recorded straight away from the player ("Record now"): exactly from start to end, no extra time. */
     val now: Boolean = false,
 ) {
@@ -47,10 +45,9 @@ data class RecFile(
     val start: Long,
     val end: Long,
     val path: String,
-    /** "recording", "converting", "done", "failed" or "skipped" (a repeat the user skipped; not shown). */
+    /** "recording", "done", "failed" or "skipped" (a repeat the user skipped; not shown). */
     val state: String,
     val notes: String = "",
-    val quality: String = "default",
 )
 
 object Recordings {
@@ -67,7 +64,7 @@ object Recordings {
             logo = o.optString("logo").ifBlank { null }, playlistId = o.optString("playlistId").ifBlank { null },
             title = o.optString("title"), startMs = o.getLong("startMs"), endMs = o.getLong("endMs"),
             days = o.optJSONArray("days")?.let { a -> (0 until a.length()).map { a.getInt(it) }.toSet() } ?: emptySet(),
-            quality = o.optString("quality", "default"), now = o.optBoolean("now"),
+            now = o.optBoolean("now"),
         )
     }
 
@@ -85,7 +82,7 @@ object Recordings {
         for (s in list) a.put(JSONObject().put("id", s.id).put("channelId", s.channelId).put("channelName", s.channelName)
             .put("logo", s.logo ?: "").put("playlistId", s.playlistId ?: "").put("title", s.title)
             .put("startMs", s.startMs).put("endMs", s.endMs).put("days", JSONArray(s.days.sorted()))
-            .put("quality", s.quality).put("now", s.now))
+            .put("now", s.now))
         schedulesFile(ctx).writeText(a.toString())
     }
 
@@ -139,7 +136,7 @@ object Recordings {
             channelId = o.optString("channelId"), channelName = o.optString("channelName"),
             logo = o.optString("logo").ifBlank { null }, playlistId = o.optString("playlistId").ifBlank { null },
             title = o.optString("title"), start = o.optLong("start"), end = o.optLong("end"), path = o.optString("path"),
-            state = o.optString("state", "done"), notes = o.optString("notes"), quality = o.optString("quality", "default"),
+            state = o.optString("state", "done"), notes = o.optString("notes"),
         )
     }
 
@@ -157,7 +154,7 @@ object Recordings {
         for (r in list) a.put(JSONObject().put("id", r.id).put("scheduleId", r.scheduleId).put("occurrence", r.occurrence)
             .put("channelId", r.channelId).put("channelName", r.channelName).put("logo", r.logo ?: "")
             .put("playlistId", r.playlistId ?: "").put("title", r.title).put("start", r.start).put("end", r.end)
-            .put("path", r.path).put("state", r.state).put("notes", r.notes).put("quality", r.quality))
+            .put("path", r.path).put("state", r.state).put("notes", r.notes))
         filesFile(ctx).writeText(a.toString())
     }
 
@@ -168,7 +165,7 @@ object Recordings {
     @Synchronized
     fun markInterrupted(ctx: Context, running: Set<String>) {
         for (f in files(ctx)) {
-            if ((f.state == "recording" || f.state == "converting") && f.id !in running) {
+            if (f.state == "recording" && f.id !in running) {
                 val ok = File(f.path).let { it.exists() && it.length() > 0 }
                 saveFile(ctx, f.copy(state = if (ok) "done" else "failed",
                     notes = listOf(f.notes, "Stopped early (the app or device was closed)").filter { it.isNotBlank() }.joinToString(" • ")))

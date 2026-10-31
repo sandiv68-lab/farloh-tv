@@ -132,32 +132,16 @@ class RecordService : Service() {
         val file = RecFile(
             scheduleId = s.id, occurrence = occ, channelId = s.channelId, channelName = s.channelName, logo = s.logo,
             playlistId = s.playlistId, title = s.title.ifBlank { s.channelName }, start = System.currentTimeMillis(), end = end,
-            path = ts.path, state = "recording", quality = s.quality,
+            path = ts.path, state = "recording",
         )
         Recordings.saveFile(this, file)
         lateinit var entry: Active
         val job = scope.launch(start = CoroutineStart.LAZY) {
             val notes = ArrayList<String>()
-            var path = ts.path
+            val path = ts.path
             try {
                 val r = Recorder.capture(account, s.channelId, ts, end)
                 notes += r.notes
-                if (s.quality == "low" && r.bytes > 0) {
-                    entry.file = entry.file.copy(state = "converting")
-                    Recordings.saveFile(this@RecordService, entry.file)
-                    updateNotification()
-                    val mp4 = File(ts.path.removeSuffix(".ts") + "_480p.mp4")
-                    try {
-                        Recorder.to480p(this@RecordService, ts, mp4)
-                        ts.delete()
-                        path = mp4.path
-                    } catch (e: CancellationException) {
-                        mp4.delete(); throw e
-                    } catch (e: Exception) {
-                        mp4.delete()
-                        notes += "Kept in full quality (the 480p copy couldn't be made)"
-                    }
-                }
             } catch (e: CancellationException) {
                 notes += "Stopped by you"
             } catch (e: Exception) {
@@ -190,17 +174,15 @@ class RecordService : Service() {
     private fun notification(): android.app.Notification {
         channel(this)
         val list = active.values.map { it.file }
-        val converting = list.count { it.state == "converting" }
         val recording = list.filter { it.state == "recording" }
         val title = when {
             recording.size == 1 -> "● Recording: ${recording[0].title}"
             recording.size > 1 -> "● Recording ${recording.size} programmes"
-            converting > 0 -> "Making the 480p copy…"
             else -> "Recordings"
         }
         val fmt = android.text.format.DateFormat.getTimeFormat(this)
         val text = recording.joinToString("\n") { "${it.channelName} – until ${fmt.format(Date(it.end))}" }
-            .ifBlank { if (converting > 0) "$converting recording(s) being made smaller" else "Starting…" }
+            .ifBlank { "Starting…" }
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_record)
             .setContentTitle(title)
