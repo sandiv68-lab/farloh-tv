@@ -26,10 +26,10 @@ import kotlinx.coroutines.withContext
  */
 class MvPicker(
     private val activity: BaseActivity,
-    /** The list the choice came from (for channel up/down and next episode), the chosen position, and a name for it. */
-    private val onPicked: (items: List<Playable>, index: Int, listName: String) -> Unit,
     /** Only Live TV (e.g. choosing a channel to record). */
     private val liveOnly: Boolean = false,
+    /** The list the choice came from (for channel up/down and next episode), the chosen position, and a name for it. */
+    private val onPicked: (items: List<Playable>, index: Int, listName: String) -> Unit,
 ) {
     private val store get() = activity.store
 

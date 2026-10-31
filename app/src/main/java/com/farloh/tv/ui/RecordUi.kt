@@ -102,12 +102,12 @@ object RecordUi {
 
     /** Downloads → Recordings → New recording: choose the channel, then the day and time. */
     fun manual(activity: BaseActivity, onSaved: () -> Unit = {}) {
-        MvPicker(activity, { items, index, _ ->
+        MvPicker(activity, liveOnly = true) { items, index, _ ->
             val ch = items.getOrNull(index) ?: return@MvPicker
             val start = roundUp(System.currentTimeMillis())
             edit(activity, Draft(null, ch.id, ch.title, ch.logo, ch.playlistId, ch.title, start, start + 3600_000L,
                 quality = activity.store.recQuality), onSaved)
-        }, liveOnly = true).start()
+        }.start()
     }
 
     fun editSchedule(activity: BaseActivity, s: RecSchedule, onSaved: () -> Unit = {}) {
