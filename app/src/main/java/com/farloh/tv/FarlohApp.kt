@@ -8,6 +8,7 @@ import coil.memory.MemoryCache
 import com.farloh.tv.net.Net
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.launch
 
 class FarlohApp : Application(), ImageLoaderFactory {
 
@@ -22,6 +23,11 @@ class FarlohApp : Application(), ImageLoaderFactory {
         cacheDir.resolve("updates").deleteRecursively()
         // Version 1.0 kept lists directly in files/catalog; they now live in one folder per playlist.
         filesDir.resolve("catalog").listFiles()?.filter { it.isFile }?.forEach { it.delete() }
+        // Clean-up of leftovers and things not used for a month (Settings → Storage).
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            kotlinx.coroutines.delay(15_000) // not while the app is starting up
+            com.farloh.tv.data.StorageInfo.autoClean(this@FarlohApp)
+        }
     }
 
     override fun newImageLoader(): ImageLoader =

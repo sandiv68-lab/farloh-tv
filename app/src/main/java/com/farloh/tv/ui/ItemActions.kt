@@ -37,7 +37,18 @@ fun openItemDetails(activity: Activity, item: CatalogItem) {
     }
 }
 
-/** The hold-OK / long-press menu for a channel, movie or TV show. */
+/**
+ * Hold OK / long-press on a movie or TV show: add it to (or remove it from) Favourites straight away,
+ * with a clear message; the ★ appears on the poster when the list redraws.
+ */
+fun quickFavorite(activity: Activity, section: Section, item: CatalogItem): Boolean {
+    val added = Store.get(activity).toggleFavorite(item.id, section, item.playlistId)
+    Toast.makeText(activity, if (added) "★  Added to Favourites\n${item.name}" else "Removed from Favourites\n${item.name}",
+        Toast.LENGTH_SHORT).show()
+    return added
+}
+
+/** The options menu (Menu key) for a channel, movie or TV show. */
 object ItemOptions {
 
     /**

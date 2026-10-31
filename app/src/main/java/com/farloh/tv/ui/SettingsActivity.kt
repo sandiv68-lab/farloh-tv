@@ -370,7 +370,7 @@ class SettingsActivity : BaseActivity() {
         val sz = sizes
         fun mb(b: Long?) = if (b == null) "…" else android.text.format.Formatter.formatShortFileSize(this, b)
         r += Row.Header("Storage", "storage", R.drawable.ic_download,
-            if (sz == null) "Space used by playlists, pictures and downloads" else "${mb(sz.playlistAll + sz.pictures + sz.subtitles + sz.updates)} used • ${mb(sz.free)} free")
+            if (sz == null) "Space used by playlists, pictures and downloads" else "${mb(sz.playlistAll + sz.pictures + sz.subtitles + sz.updates + sz.temp)} used • ${mb(sz.free)} free")
         r += Row.Item("Free space on this device", mb(sz?.free)) { }
         r += Row.Item("Saved playlists – this playlist", mb(sz?.playlistActive),
             "Channel, movie and show lists. Only re-downloaded when you press Refresh") {
@@ -394,7 +394,7 @@ class SettingsActivity : BaseActivity() {
                 refresh()
             }
         }
-        r += Row.Item("Downloaded subtitles", mb(sz?.subtitles), "Subtitles for downloaded videos are kept") {
+        r += Row.Item("Downloaded subtitles", mb(sz?.subtitles), "Removed after 30 days unused; subtitles for downloaded videos are kept. Tap to clear") {
             lifecycleScope.launch { com.farloh.tv.data.StorageInfo.clearSubtitles(this@SettingsActivity); remeasure("Subtitles cleared") }
         }
         r += Row.Item("Update files", mb(sz?.updates), "Removed automatically after an update installs") {
@@ -411,16 +411,21 @@ class SettingsActivity : BaseActivity() {
         r += Row.Item("TV guide", "Memory only", "Kept for ${store.epgMinutes} minutes per channel. Tap to clear") {
             Xtream.clearCache(); toast("TV guide cleared")
         }
+        r += Row.Item("EPG search data", mb(sz?.guide), "The full guide saved for EPG search. Removed after 30 days unused. Tap to clear") {
+            lifecycleScope.launch { com.farloh.tv.data.StorageInfo.clearGuide(this@SettingsActivity); remeasure("EPG search data cleared") }
+        }
+        r += Row.Item("Temporary files", mb(sz?.temp), "Leftovers from interrupted downloads. Removed automatically") { }
         r += Row.Item("Offline downloads", mb(sz?.downloads), "Manage them on the Downloads screen") {
             startActivity(Intent(this, DownloadsActivity::class.java))
         }
         r += Row.Item("Clear all cache", sz?.let { mb(it.clearable) } ?: "",
-            "Pictures, TV guide and update files. Doesn't touch playlists, favourites or downloads") {
-            lifecycleScope.launch {
-                com.farloh.tv.data.StorageInfo.clearPictures(this@SettingsActivity)
-                com.farloh.tv.data.StorageInfo.clearUpdates(this@SettingsActivity)
-                Xtream.clearCache()
-                remeasure("Cache cleared")
+            "Pictures, TV guide, EPG search data, subtitles, update and temporary files. Keeps playlists, favourites, history and downloads") {
+            Dialogs.confirm(this, "Clear all cache?", "Pictures and the TV guide download again when needed. " +
+                "Playlists, favourites, history, settings and downloads are kept.", "Clear") {
+                lifecycleScope.launch {
+                    com.farloh.tv.data.StorageInfo.clearAllCache(this@SettingsActivity)
+                    remeasure("Cache cleared")
+                }
             }
         }
 
@@ -483,6 +488,18 @@ class SettingsActivity : BaseActivity() {
                     store.setHiddenCategories(section, ids)
                     toast(if (ids.isEmpty()) "All groups visible" else "${ids.size} group(s) hidden")
                     refresh()
+                    // Groups that were hidden at the last refresh weren't downloaded: fetch them now.
+                    if (Catalog.missesShownCategories(this@SettingsActivity, section)) {
+                        toast("Downloading the groups you've un-hidden…")
+                        lifecycleScope.launch {
+                            try {
+                                Catalog.refresh(this@SettingsActivity, section)
+                                toast("${section.title} updated")
+                            } catch (e: Exception) {
+                                toast("${section.title}: ${Net.friendlyError(e)}", long = true)
+                            }
+                        }
+                    }
                 }
                 .setNegativeButton("Cancel", null)
                 .create()

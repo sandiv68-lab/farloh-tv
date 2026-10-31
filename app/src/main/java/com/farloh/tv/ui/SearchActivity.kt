@@ -171,7 +171,12 @@ class SearchActivity : BaseActivity() {
         channelAdapter.onClick = { _, pos -> playChannel(pos, external = false) }
         channelAdapter.onLongClick = { item, pos -> options(item, pos) }
         posterAdapter.onClick = { item, _ -> openItemDetails(this, item) }
-        posterAdapter.onLongClick = { item, pos -> options(item, pos) }
+        // Hold OK / long-press = Favourite (Menu key = more options).
+        posterAdapter.onLongClick = { item, _ ->
+            quickFavorite(this, if (item is Show) Section.SERIES else Section.MOVIES, item)
+            favs = loadFavs()
+            posterAdapter.notifyDataSetChanged()
+        }
         guideAdapter.onClick = { hit, _ -> openGuideHit(hit) }
         guideAdapter.onLongClick = { hit, _ ->
             ItemOptions.show(this, Section.LIVE, hit.channel, accountOf(hit.channel), playLive = { ext -> playGuideChannel(hit, ext) })
@@ -421,7 +426,7 @@ class SearchActivity : BaseActivity() {
         for (pl in views) {
             val n = counts[pl.id] ?: 0
             val chip = layoutInflater.inflate(R.layout.tab_chip, row, false) as TextView
-            chip.text = "${pl.name} ($n${if (n >= LIMIT) "+" else ""})"
+            chip.text = pl.name // the number of results is in the line below the tabs
             chip.isSelected = pl.id == shownPlaylist
             chip.alpha = if (n == 0) 0.5f else 1f
             chip.setOnClickListener { shownPlaylist = pl.id; show(shown) }
@@ -534,11 +539,12 @@ class SearchActivity : BaseActivity() {
             val pos = holder?.bindingAdapterPosition ?: RecyclerView.NO_POSITION
             if (pos != RecyclerView.NO_POSITION) {
                 if (shown == GUIDE) {
-                    guideHits.getOrNull(pos)?.let { hit ->
+                    guideAdapter.items.getOrNull(pos)?.let { hit ->
                         ItemOptions.show(this, Section.LIVE, hit.channel, accountOf(hit.channel), playLive = { ext -> playGuideChannel(hit, ext) })
                     }
                 } else {
-                    results[Section.valueOf(shown)]?.getOrNull(pos)?.let { options(it, pos) }
+                    val list = if (shown == Section.LIVE.name) channelAdapter.items else posterAdapter.items
+                    list.getOrNull(pos)?.let { options(it, pos) }
                 }
                 return true
             }

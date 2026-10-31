@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Playlist tabs on the Search screen: the chosen one is solid orange; the remote's position has the usual outline. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_selected="true" android:state_focused="true">
+        <shape><corners android:radius="@dimen/corner" /><solid android:color="@color/accent" /><stroke android:width="3dp" android:color="#FFFFFFFF" /></shape>
+    </item>
+    <item android:state_selected="true">
+        <shape><corners android:radius="@dimen/corner" /><solid android:color="@color/accent" /></shape>
+    </item>
+    <item android:state_focused="true">
+        <shape><corners android:radius="@dimen/corner" /><solid android:color="#40FF9F43" /><stroke android:width="3dp" android:color="@color/accent" /></shape>
+    </item>
+    <item android:state_pressed="true">
+        <shape><corners android:radius="@dimen/corner" /><solid android:color="#33FFFFFF" /></shape>
+    </item>
+    <item>
+        <shape><corners android:radius="@dimen/corner" /><solid android:color="#14FFFFFF" /></shape>
+    </item>
+</selector>

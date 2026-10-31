@@ -97,14 +97,65 @@ object Catalog {
         File(ctx.filesDir, "catalog/$playlistId").deleteRecursively()
     }
 
+    /**
+     * Downloads the categories, then the channels/movies/shows. When at least half of the categories are hidden
+     * (parental control), only the visible categories are asked for, one by one – much less to download.
+     * Otherwise everything comes in one go (quicker). New categories are never hidden, so they always come in.
+     */
     private fun download(ctx: Context, s: Section, pid: String?) {
-        val account = Store.get(ctx).accountFor(pid) ?: throw IOException("Not signed in")
+        val store = Store.get(ctx)
+        val account = store.accountFor(pid) ?: throw IOException("Not signed in")
         val catNew = File(categoryFile(ctx, s, pid).path + ".new")
         val itemNew = File(itemFile(ctx, s, pid).path + ".new")
         Net.download(account.api(s.catAction), catNew)
-        Net.download(account.api(s.listAction), itemNew)
+
+        val all = ArrayList<String>()
+        readObjects(catNew, setOf("category_id")) { m -> m["category_id"]?.let { all += it } }
+        val hidden = store.hiddenCategories(s, pid)
+        val hiddenHere = all.count { it in hidden }
+        val partial = all.isNotEmpty() && hiddenHere > 0 && hiddenHere * 2 >= all.size
+        if (partial) {
+            downloadCategories(account, s, all.filter { it !in hidden }, itemNew)
+        } else {
+            Net.download(account.api(s.listAction), itemNew)
+        }
         replace(catNew, categoryFile(ctx, s, pid))
         replace(itemNew, itemFile(ctx, s, pid))
+        // Remember which categories were left out, so un-hiding one fetches it.
+        val skipped = partialFile(ctx, s, pid)
+        if (partial) skipped.writeText(all.filter { it in hidden }.joinToString("\n")) else skipped.delete()
+    }
+
+    /** Asks the server for each category in turn and joins the answers into one list file. */
+    private fun downloadCategories(account: Account, s: Section, ids: List<String>, dest: File) {
+        val part = File(dest.path + ".cat")
+        dest.bufferedWriter(Charsets.UTF_8).use { out ->
+            out.write("[")
+            var first = true
+            for (id in ids) {
+                Net.download(account.api(s.listAction, "&category_id=" + java.net.URLEncoder.encode(id, "UTF-8")), part)
+                val body = part.readText(Charsets.UTF_8).trim()
+                // Each answer is a JSON list [ {...}, {...} ]: keep what's between the brackets.
+                val inner = if (body.startsWith("[") && body.endsWith("]")) body.substring(1, body.length - 1).trim() else ""
+                if (inner.isNotEmpty()) {
+                    if (!first) out.write(",")
+                    out.write(inner)
+                    first = false
+                }
+            }
+            out.write("]")
+        }
+        part.delete()
+    }
+
+    private fun partialFile(ctx: Context, s: Section, pid: String?) = File(dir(ctx, pid), "${s.key}_skipped.txt")
+
+    /** True if categories that are now shown were left out at the last refresh (they need downloading). */
+    fun missesShownCategories(ctx: Context, s: Section, pid: String? = null): Boolean {
+        val f = partialFile(ctx, s, pid)
+        if (!f.exists()) return false
+        val hidden = Store.get(ctx).hiddenCategories(s, pid)
+        return f.readLines().any { it.isNotBlank() && it !in hidden }
     }
 
     private fun replace(from: File, to: File) {

@@ -211,6 +211,9 @@ class PlayerActivity : BaseActivity() {
         playerView.setShowNextButton(true)
         playerView.setShowPreviousButton(true)
         playerView.controllerShowTimeoutMs = 6000
+        // Movies & shows: the controls and the bottom panel appear and disappear together (like Live TV),
+        // instead of the panel sliding away in steps.
+        playerView.setControllerAnimationEnabled(false)
         playerView.setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
             vodTop.visibility = View.GONE
         })
@@ -296,6 +299,15 @@ class PlayerActivity : BaseActivity() {
             b.layoutParams = (b.layoutParams as android.view.ViewGroup.MarginLayoutParams).apply {
                 width = size; height = size
                 if (i > 0) marginStart = (14 * d).toInt()
+            }
+        }
+        // Phones: Channels/Episodes and Settings as icons only, so all buttons fit in one row.
+        for (row in actionRows) for (id in listOf(R.id.actChannels, R.id.actSettings)) {
+            (row.findViewById<TextView>(id))?.apply {
+                text = ""
+                compoundDrawablePadding = 0
+                minWidth = (48 * d).toInt(); minimumWidth = (48 * d).toInt()
+                setPadding((14 * d).toInt(), paddingTop, (10 * d).toInt(), paddingBottom)
             }
         }
         // The button-name line is for TV remotes; on a touch screen it only takes space.
@@ -551,7 +563,11 @@ class PlayerActivity : BaseActivity() {
         if (player != null) playCurrent(resume = PlayQueue.resume)
     }
 
-    private fun mediaItem(p: Playable): MediaItem = PlayerFactory.mediaItem(p, subFile(p))
+    private fun mediaItem(p: Playable): MediaItem {
+        // A downloaded subtitle that's used is kept (unused ones are cleaned up after 30 days).
+        subFile(p).takeIf { it.exists() }?.setLastModified(System.currentTimeMillis())
+        return PlayerFactory.mediaItem(p, subFile(p))
+    }
 
     // ---------------- Subtitles ----------------
 
@@ -1091,8 +1107,9 @@ class PlayerActivity : BaseActivity() {
             row.findViewById<TextView>(R.id.actChannels)?.apply {
                 // Live TV: channel list. TV shows: episode list. Movies: nothing to list.
                 visibility = if (isLive || (p.kind == Kind.EPISODE && items.size > 1)) View.VISIBLE else View.GONE
-                text = if (isLive) "Channels" else "Episodes"
-                contentDescription = text
+                val name = if (isLive) "Channels" else "Episodes"
+                text = if (tvMode) name else "" // phones: icon only, so the whole bar fits
+                contentDescription = name
             }
             row.findViewById<TextView>(R.id.actSpeed)?.apply {
                 visibility = if (isLive) View.GONE else View.VISIBLE // live TV always plays at normal speed

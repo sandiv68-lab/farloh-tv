@@ -209,7 +209,8 @@ class BrowseActivity : BaseActivity() {
             itemsRv.layoutManager = GridLayoutManager(this, span)
             itemAdapter = SimpleAdapter<CatalogItem>(R.layout.item_poster, 1.07f) { v, item, _ -> bindPoster(v, item) }
             itemAdapter.onClick = { item, _ -> openDetails(item) }
-            itemAdapter.onLongClick = { item, _ -> posterOptions(item) }
+            // Hold OK / long-press = Favourite (Menu key = more options).
+            itemAdapter.onLongClick = { item, _ -> quickFavorite(this, section, item); render(keepScroll = true) }
         }
         itemsRv.adapter = itemAdapter
     }

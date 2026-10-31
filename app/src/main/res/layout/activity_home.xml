@@ -18,6 +18,12 @@
                 android:maxLines="2" android:textColor="@color/text2" android:textSize="13sp" />
             <ImageButton android:id="@+id/search" style="@style/IconBtn" android:layout_marginStart="12dp"
                 android:src="@drawable/ic_search" android:contentDescription="Search" />
+            <FrameLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp">
+                <ImageButton android:id="@+id/refreshAll" style="@style/IconBtn"
+                    android:src="@drawable/ic_refresh" android:contentDescription="Refresh all (Live TV, Movies, TV Shows)" />
+                <ProgressBar android:id="@+id/refreshAllProgress" android:layout_width="48dp" android:layout_height="48dp"
+                    android:padding="8dp" android:visibility="gone" />
+            </FrameLayout>
             <Button android:id="@+id/playlist" style="@style/Btn" android:layout_marginStart="8dp"
                 android:drawableStart="@drawable/ic_playlist" android:drawablePadding="8dp" android:ellipsize="end"
                 android:maxWidth="220dp" android:singleLine="true" android:text="Playlist" />

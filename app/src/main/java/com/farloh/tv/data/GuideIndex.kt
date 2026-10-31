@@ -109,6 +109,7 @@ object GuideIndex {
     suspend fun search(ctx: Context, query: String, limit: Int, pid: String? = null): List<Programme> = withContext(Dispatchers.IO) {
         val f = file(ctx, pid)
         if (!f.exists()) return@withContext emptyList()
+        markUsed(f)
         val words = query.lowercase().split(' ').filter { it.isNotBlank() }
         if (words.isEmpty()) return@withContext emptyList()
         val now = System.currentTimeMillis()
@@ -129,7 +130,20 @@ object GuideIndex {
         out.sortedWith(compareBy<Programme>({ !it.isNow(now) }, { it.start })).take(limit)
     }
 
-    fun delete(ctx: Context, pid: String? = null) = file(ctx, pid).delete()
+    fun delete(ctx: Context, pid: String? = null) = deleteFile(file(ctx, pid))
+
+    /** EPG search data for a playlist, and its "last used" mark. */
+    fun deleteFile(f: File) { f.delete(); usedMark(f).delete() }
+
+    private fun usedMark(f: File) = File(f.path + ".used")
+
+    /** When this playlist's EPG search data was last searched (or downloaded). */
+    fun lastUsed(f: File): Long = usedMark(f).let { if (it.exists()) it.lastModified() else f.lastModified() }
+
+    private fun markUsed(f: File) {
+        val m = usedMark(f)
+        runCatching { if (!m.exists()) m.createNewFile(); m.setLastModified(System.currentTimeMillis()) }
+    }
 
     /** XMLTV times look like "20261023180000 +0800" (offset sometimes missing → UTC). */
     private fun parseTime(s: String?): Long {

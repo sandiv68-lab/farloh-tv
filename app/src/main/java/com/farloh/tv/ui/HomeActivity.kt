@@ -65,6 +65,7 @@ class HomeActivity : BaseActivity() {
         findViewById<View>(R.id.settings).setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
         findViewById<View>(R.id.downloads).setOnClickListener { openDownloads() }
         findViewById<View>(R.id.search).setOnClickListener { startActivity(Intent(this, SearchActivity::class.java)) }
+        findViewById<View>(R.id.refreshAll).setOnClickListener { refreshAll() }
         findViewById<View>(R.id.bell).setOnClickListener { startActivity(Intent(this, NewsActivity::class.java)) }
         findViewById<View>(R.id.bell).visibility = if (com.farloh.tv.data.Feed.configured) View.VISIBLE else View.GONE
         tiles.getValue(Section.LIVE).card.requestFocus()
@@ -206,20 +207,44 @@ class HomeActivity : BaseActivity() {
         busy.add(section)
         updateTile(section)
         lifecycleScope.launch {
-            val views = store.viewPlaylists()
-            var total = 0
-            val errors = ArrayList<String>()
-            for (pl in views) {
-                try {
-                    total += Catalog.refresh(this@HomeActivity, section, pl.id).items.size
-                } catch (e: Exception) {
-                    errors += (if (views.size > 1) "${pl.name}: " else "") + Net.friendlyError(e)
-                }
-            }
-            busy.remove(section)
-            updateTile(section)
+            val errors = refreshNow(section)
             if (errors.isNotEmpty()) toast("${section.title}: " + errors.joinToString("\n"), long = true)
-            else if (!quiet) toast("${section.title} refreshed: $total items")
+            else if (!quiet) toast("${section.title} refreshed")
+        }
+    }
+
+    /** Refreshes one section for every playlist on screen; returns the problems (if any). Clears its "busy" mark. */
+    private suspend fun refreshNow(section: Section): List<String> {
+        val views = store.viewPlaylists()
+        val errors = ArrayList<String>()
+        for (pl in views) {
+            try {
+                Catalog.refresh(this@HomeActivity, section, pl.id)
+            } catch (e: Exception) {
+                errors += (if (views.size > 1) "${pl.name}: " else "") + Net.friendlyError(e)
+            }
+        }
+        busy.remove(section)
+        updateTile(section)
+        return errors
+    }
+
+    /** Refresh all: Live TV, Movies and TV Shows (every playlist in the combined view), one after another. */
+    private fun refreshAll() {
+        val todo = Section.values().filter { it !in busy }
+        if (todo.isEmpty()) return
+        todo.forEach { busy.add(it); updateTile(it) }
+        val button = findViewById<View>(R.id.refreshAll)
+        val spinner = findViewById<View>(R.id.refreshAllProgress)
+        button.visibility = View.INVISIBLE
+        spinner.visibility = View.VISIBLE
+        toast("Refreshing Live TV, Movies and TV Shows…")
+        lifecycleScope.launch {
+            val problems = ArrayList<String>()
+            for (section in todo) refreshNow(section).forEach { problems += "${section.title}: $it" }
+            spinner.visibility = View.GONE
+            button.visibility = View.VISIBLE
+            if (problems.isEmpty()) toast("Everything refreshed ✓") else toast(problems.joinToString("\n"), long = true)
         }
     }
 

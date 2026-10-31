@@ -56,7 +56,7 @@ object Xtream {
         epgCache.get(key)?.let { if (now - it.first < epgTtlMs) return@withContext it.second }
         val url = if (full) account.api("get_simple_data_table", "&stream_id=$streamId")
                   else account.api("get_short_epg", "&stream_id=$streamId&limit=6")
-        val list = parseEpg(Net.getString(url))
+        val list = oneTimeline(parseEpg(Net.getString(url)))
             .filter { it.end > now - (if (full) 2 * 3600_000L else 0L) }
             .filter { !full || it.start < now + 36 * 3600_000L }
             .sortedBy { it.start }
@@ -66,19 +66,38 @@ object Xtream {
         list
     }
 
-    private fun parseEpg(json: String): List<Programme> {
+    /** One guide entry plus where it came from (servers sometimes mix several guide sources for one channel). */
+    private class Listing(val p: Programme, val source: String)
+
+    private fun parseEpg(json: String): List<Listing> {
         val root = try { JSONObject(json) } catch (e: Exception) { return emptyList() }
         val arr = root.optJSONArray("epg_listings") ?: return emptyList()
-        val out = ArrayList<Programme>(arr.length())
+        val out = ArrayList<Listing>(arr.length())
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
+            // The *_timestamp fields are exact (UTC); the text dates are in the server's own time zone.
             val start = o.optString("start_timestamp").toLongOrNull()?.times(1000) ?: parseDate(o.optString("start"))
             val end = o.optString("stop_timestamp").toLongOrNull()?.times(1000)
                 ?: parseDate(o.optString("end").ifBlank { o.optString("stop") })
-            if (start <= 0 || end <= start) continue
-            out.add(Programme(b64(o.optString("title")), b64(o.optString("description")), start, end))
+            if (start <= 0 || end <= start || end - start > 24 * 3600_000L) continue
+            val source = listOf("epg_id", "channel_id", "lang").joinToString("|") { o.optString(it) }
+            out.add(Listing(Programme(b64(o.optString("title")), b64(o.optString("description")), start, end), source))
         }
         return out
+    }
+
+    /**
+     * Some servers send overlapping guides for one channel (two guide sources, or the same one twice with
+     * different times), which showed several programmes as "NOW". This keeps one clean timeline: the source
+     * with the most entries first, then other entries only where they fill a gap. Nothing overlaps after this.
+     */
+    private fun oneTimeline(all: List<Listing>): List<Programme> {
+        if (all.isEmpty()) return emptyList()
+        val bySource = all.groupBy { it.source }.values.sortedByDescending { it.size }
+        val kept = ArrayList<Programme>()
+        fun overlaps(p: Programme) = kept.any { k -> p.start < k.end - 60_000 && p.end > k.start + 60_000 }
+        for (group in bySource) for (l in group.sortedBy { it.p.start }) if (!overlaps(l.p)) kept += l.p
+        return kept
     }
 
     private fun b64(s: String): String {
