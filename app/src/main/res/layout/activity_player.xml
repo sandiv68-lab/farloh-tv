@@ -54,22 +54,33 @@
                 <TextView android:id="@+id/chName" android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:ellipsize="end" android:singleLine="true" android:textColor="@color/text" android:textSize="22sp"
                     android:textStyle="bold" />
-                <TextView android:id="@+id/nowTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp" android:ellipsize="end" android:singleLine="true"
-                    android:textColor="@color/text" android:textSize="16sp" />
-                <ProgressBar android:id="@+id/nowProgress" style="?android:attr/progressBarStyleHorizontal"
-                    android:layout_width="match_parent" android:layout_height="4dp" android:layout_marginTop="6dp"
-                    android:max="1000" android:progressTint="@color/accent" android:visibility="gone" />
-                <TextView android:id="@+id/nextTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp" android:ellipsize="end" android:singleLine="true"
-                    android:textColor="@color/text2" android:textSize="14sp" />
+                <!-- The guide in one place: what's on now; Left / Right step to earlier / later programmes, OK = details. -->
+                <LinearLayout android:id="@+id/guideBox" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp" android:background="@drawable/focus_bg"
+                    android:clickable="true" android:focusable="true" android:gravity="center_vertical"
+                    android:orientation="horizontal" android:paddingTop="4dp" android:paddingBottom="4dp">
+                    <ImageView android:id="@+id/guidePrev" android:layout_width="28dp" android:layout_height="36dp"
+                        android:padding="4dp" android:src="@drawable/ic_chevron_left" android:tint="@color/text2"
+                        android:contentDescription="Earlier programme" />
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                        android:orientation="vertical">
+                        <TextView android:id="@+id/nowTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:ellipsize="end" android:singleLine="true" android:textColor="@color/text" android:textSize="16sp" />
+                        <ProgressBar android:id="@+id/nowProgress" style="?android:attr/progressBarStyleHorizontal"
+                            android:layout_width="match_parent" android:layout_height="4dp" android:layout_marginTop="6dp"
+                            android:max="1000" android:progressTint="@color/accent" android:visibility="gone" />
+                        <TextView android:id="@+id/nextTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp" android:ellipsize="end" android:singleLine="true"
+                            android:textColor="@color/text2" android:textSize="14sp" />
+                    </LinearLayout>
+                    <ImageView android:id="@+id/guideNext" android:layout_width="28dp" android:layout_height="36dp"
+                        android:padding="4dp" android:src="@drawable/ic_chevron_right" android:tint="@color/text2"
+                        android:contentDescription="Later programme" />
+                </LinearLayout>
             </LinearLayout>
             <TextView android:id="@+id/clock" android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:layout_marginStart="16dp" android:textColor="@color/text" android:textSize="20sp" />
         </LinearLayout>
-        <!-- The guide: earlier ◀ NOW ▶ later programmes. Up from the buttons reaches it; OK = details. -->
-        <androidx.recyclerview.widget.RecyclerView android:id="@+id/guideStrip" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:layout_marginTop="6dp" android:visibility="gone" />
         <include android:id="@+id/liveActions" layout="@layout/player_actions" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:layout_marginTop="4dp" />
     </LinearLayout>

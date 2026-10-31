@@ -103,7 +103,10 @@ class PlayerActivity : BaseActivity() {
     /** Live TV: ⏮ ⏪ ▶/⏸ ⏩ ⏭ in the middle of the screen. */
     private lateinit var liveCenter: View
     /** Live TV: the channel's guide (earlier and later programmes) above the button bar. */
-    private lateinit var guideStrip: RecyclerView
+    private lateinit var guideBox: View
+    /** The day's guide for the channel, and how many programmes away from "now" the guide box shows (0 = now). */
+    private var dayGuide: List<Programme> = emptyList()
+    private var guideShift = 0
     private var guideFor: String? = null
     private lateinit var livePlayPause: ImageView
     private lateinit var chLogo: ImageView
@@ -176,12 +179,12 @@ class PlayerActivity : BaseActivity() {
         vodTitle = playerView.findViewById(R.id.vodPanelTitle) ?: findViewById(R.id.vodTitle)
         infoBar = findViewById(R.id.infoBar)
         liveCenter = findViewById(R.id.liveCenter)
-        guideStrip = findViewById(R.id.guideStrip)
-        guideStrip.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
-        guideStrip.itemAnimator = null
-        guideStrip.adapter = guideStripAdapter
-        guideStripAdapter.onClick = { p, _ -> programmeDetails(p) }
-        guideStripAdapter.onFocus = { _, _ -> scheduleHideInfo(10_000L) }
+        guideBox = findViewById(R.id.guideBox)
+        guideBox.setOnClickListener { guideSelected()?.let { programmeDetails(it) } }
+        guideBox.setOnFocusChangeListener { _, has -> if (!has && guideShift != 0) { guideShift = 0; renderNowNext() } }
+        // Phones: tap ◀ ▶ to step through the guide (TV: Left / Right on the remote).
+        findViewById<View>(R.id.guidePrev).setOnClickListener { stepGuide(-1) }
+        findViewById<View>(R.id.guideNext).setOnClickListener { stepGuide(1) }
         livePlayPause = findViewById(R.id.livePlayPause)
         findViewById<View>(R.id.livePrev).setOnClickListener { switchTo(index - 1); showInfo(focusButtons = false, controls = true) }
         findViewById<View>(R.id.liveNext).setOnClickListener { switchTo(index + 1); showInfo(focusButtons = false, controls = true) }
@@ -918,10 +921,6 @@ class PlayerActivity : BaseActivity() {
         updateInfoBar()
         infoBar.visibility = View.VISIBLE
         if (controls && isLive) { updateLivePlayPause(); liveCenter.visibility = View.VISIBLE; keepLiveCenterAboveInfo() }
-        if (isLive && guideStripAdapter.items.isNotEmpty() && !guideStrip.hasFocus()) {
-            guideStripAdapter.notifyDataSetChanged() // "NOW" moves on as time passes
-            scrollGuideToNow(focus = false)
-        }
         if (focusButtons) findViewById<View>(R.id.liveActions)?.findViewById<View>(R.id.actChannels)?.requestFocus()
         scheduleHideInfo(if (focusButtons) 10_000L else 5_000L)
     }
@@ -933,6 +932,7 @@ class PlayerActivity : BaseActivity() {
 
     private fun hideInfo() {
         handler.removeCallbacks(hideInfoRunnable)
+        if (guideShift != 0) { guideShift = 0; renderNowNext() }
         infoBar.visibility = View.GONE
         liveCenter.visibility = View.GONE
     }
@@ -964,80 +964,80 @@ class PlayerActivity : BaseActivity() {
         val p = current
         val acc = store.accountFor(p.playlistId) ?: account ?: return
         epgJob?.cancel()
-        if (guideFor != p.id) { guideStripAdapter.submit(emptyList()); guideStrip.visibility = View.GONE }
+        if (guideFor != p.id) { dayGuide = emptyList(); guideShift = 0 }
         epgJob = lifecycleScope.launch {
             val list = runCatching { Xtream.epg(acc, p.id, full = false) }.getOrDefault(emptyList())
             if (items.isNotEmpty() && current.id == p.id) {
                 nowNext = list
                 renderNowNext()
             }
-            // The day's guide for the strip (falls back to now/next).
+            // The day's guide, so Left / Right can step through it (falls back to now/next).
             val day = runCatching { Xtream.epg(acc, p.id, full = true) }.getOrDefault(emptyList()).ifEmpty { list }
             if (items.isNotEmpty() && current.id == p.id) {
                 guideFor = p.id
-                guideStripAdapter.submit(day)
-                guideStrip.visibility = if (day.isEmpty()) View.GONE else View.VISIBLE
-                nextTitle.visibility = if (day.isEmpty()) View.VISIBLE else View.GONE // the strip shows what's next
-                scrollGuideToNow(focus = false)
+                dayGuide = day
+                renderNowNext()
             }
         }
     }
 
-    private val guideStripAdapter = SimpleAdapter<Programme>(R.layout.guide_chip, 1.04f) { v, p, _ ->
-        val now = p.isNow()
-        val day = when {
-            android.text.format.DateUtils.isToday(p.start) -> ""
-            p.start > System.currentTimeMillis() -> "  (tomorrow)"
-            else -> "  (yesterday)"
-        }
-        v.findViewById<TextView>(R.id.gTime).apply {
-            text = (if (now) "NOW   " else "") + "${Fmt.time(this@PlayerActivity, p.start)} – ${Fmt.time(this@PlayerActivity, p.end)}$day"
-            setTextColor(androidx.core.content.ContextCompat.getColor(this@PlayerActivity, if (now) R.color.accent else R.color.accent2))
-        }
-        v.findViewById<TextView>(R.id.gTitle).text = p.title.ifBlank { "No title" }
+    private fun guideList() = dayGuide.ifEmpty { nowNext }
+
+    /** Where "now" is in the guide (or the next programme to start). */
+    private fun guideNowIndex(list: List<Programme>): Int {
+        val now = System.currentTimeMillis()
+        return list.indexOfFirst { it.isNow(now) }.let { if (it >= 0) it else list.indexOfFirst { p -> p.start > now }.let { n -> if (n >= 0) n else list.size - 1 } }
     }
 
-    /** Shows the programme on now (first in view); [focus] also moves the remote's selection to it. */
-    private fun scrollGuideToNow(focus: Boolean) {
-        val list = guideStripAdapter.items
+    private fun guideSelected(): Programme? {
+        val list = guideList()
+        if (list.isEmpty()) return null
+        return list[(guideNowIndex(list) + guideShift).coerceIn(0, list.size - 1)]
+    }
+
+    /** Left / Right in the guide box: the previous / next programme, in the same place. */
+    private fun stepGuide(by: Int) {
+        val list = guideList()
         if (list.isEmpty()) return
-        val i = list.indexOfFirst { it.isNow() }.let { if (it >= 0) it else list.indexOfFirst { p -> p.start > System.currentTimeMillis() }.coerceAtLeast(0) }
-        val lm = guideStrip.layoutManager as LinearLayoutManager
-        lm.scrollToPositionWithOffset(i, 0)
-        if (focus) focusWhenReady(guideStrip, i)
-    }
-
-    /** OK on a programme in the guide: its details. */
-    private fun programmeDetails(p: Programme) {
-        val now = p.isNow()
-        val day = if (android.text.format.DateUtils.isToday(p.start)) "Today" else Fmt.date(p.start)
-        val msg = buildString {
-            append("$day, ${Fmt.time(this@PlayerActivity, p.start)} – ${Fmt.time(this@PlayerActivity, p.end)}")
-            append("  (${(p.end - p.start) / 60_000} min)")
-            if (now) append("\nOn now – ${p.progress() / 10}% done")
-            else if (p.start > System.currentTimeMillis()) append("\nStarts in ${Fmt.duration(p.start - System.currentTimeMillis())}")
-            if (p.description.isNotBlank()) append("\n\n").append(p.description)
-        }
-        AlertDialog.Builder(this)
-            .setTitle(p.title.ifBlank { current.title })
-            .setMessage(msg)
-            .setPositiveButton("OK", null)
-            .show()
+        val nowIdx = guideNowIndex(list)
+        guideShift = (nowIdx + guideShift + by).coerceIn(0, list.size - 1) - nowIdx
+        renderNowNext()
         scheduleHideInfo(10_000L)
     }
 
     private fun renderNowNext() {
-        val now = nowNext.firstOrNull { it.isNow() }
-        val next = nowNext.firstOrNull { it.start >= (now?.end ?: System.currentTimeMillis()) }
-        if (now != null) {
-            nowTitle.text = "Now: ${now.title}    ${Fmt.time(this, now.start)} – ${Fmt.time(this, now.end)}"
-            nowProgress.progress = now.progress()
-            nowProgress.visibility = View.VISIBLE
-        } else {
-            nowTitle.text = if (nowNext.isEmpty()) "No guide information" else ""
+        val list = guideList()
+        val nowMs = System.currentTimeMillis()
+        val nowIdx = guideNowIndex(list)
+        val selIdx = if (list.isEmpty()) -1 else (nowIdx + guideShift).coerceIn(0, list.size - 1)
+        findViewById<View>(R.id.guidePrev).alpha = if (selIdx > 0) 1f else 0.25f
+        findViewById<View>(R.id.guideNext).alpha = if (selIdx in 0 until list.size - 1) 1f else 0.25f
+        val sel = list.getOrNull(selIdx)
+        if (sel == null) {
+            nowTitle.text = "No guide information"
             nowProgress.visibility = View.GONE
+            nextTitle.text = ""
+            return
         }
-        nextTitle.text = next?.let { "Next: ${Fmt.time(this, it.start)}   ${it.title}" } ?: ""
+        val time = "${Fmt.time(this, sel.start)} – ${Fmt.time(this, sel.end)}"
+        val day = when {
+            android.text.format.DateUtils.isToday(sel.start) -> ""
+            sel.start > nowMs -> "  (tomorrow)"
+            else -> "  (yesterday)"
+        }
+        if (sel.isNow(nowMs)) {
+            nowTitle.text = "Now: ${sel.title}    $time"
+            nowProgress.progress = sel.progress()
+            nowProgress.visibility = View.VISIBLE
+            val next = list.getOrNull(selIdx + 1)
+            nextTitle.text = next?.let { "Next: ${Fmt.time(this, it.start)}   ${it.title}" } ?: ""
+        } else {
+            val label = if (sel.start > nowMs) "Later" else "Earlier"
+            nowTitle.text = "$label: ${sel.title}    $time$day"
+            nowProgress.visibility = View.GONE
+            nextTitle.text = sel.description.lineSequence().firstOrNull { it.isNotBlank() }
+                ?: if (sel.start > nowMs) "Starts in ${Fmt.duration(sel.start - nowMs)}" else ""
+        }
     }
 
     private fun showPanel() {
@@ -1697,16 +1697,21 @@ class PlayerActivity : BaseActivity() {
         if (infoBar.visibility == View.VISIBLE && (infoBar.hasFocus() || liveCenter.hasFocus())) {
             if (code == KeyEvent.KEYCODE_BACK) { hideInfo(); return true }
             scheduleHideInfo(10_000L)
-            // Up / Down: buttons ↔ guide ↔ ⏮ ⏸ ⏭ (Up from the top closes the overlay).
-            val inGuide = guideStrip.hasFocus()
+            // Up / Down: buttons ↔ guide box ↔ ⏮ ⏸ ⏭ (Up from the top closes the overlay).
+            // In the guide box, Left / Right step through the programmes and OK shows the details.
+            val inGuide = guideBox.hasFocus()
             val inCenter = liveCenter.hasFocus()
-            val hasGuide = guideStrip.visibility == View.VISIBLE && guideStripAdapter.items.isNotEmpty()
+            val hasGuide = guideList().isNotEmpty()
             val hasCenter = liveCenter.visibility == View.VISIBLE
+            if (inGuide && (code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+                if (event.action == KeyEvent.ACTION_DOWN) stepGuide(if (code == KeyEvent.KEYCODE_DPAD_LEFT) -1 else 1)
+                return true
+            }
             if (code == KeyEvent.KEYCODE_DPAD_UP) {
                 when {
                     inCenter -> hideInfo()
                     inGuide -> if (hasCenter) livePlayPause.requestFocus() else hideInfo()
-                    hasGuide -> scrollGuideToNow(focus = true)
+                    hasGuide -> guideBox.requestFocus()
                     hasCenter -> livePlayPause.requestFocus()
                     else -> hideInfo()
                 }
@@ -1714,7 +1719,7 @@ class PlayerActivity : BaseActivity() {
             }
             if (code == KeyEvent.KEYCODE_DPAD_DOWN) {
                 when {
-                    inCenter && hasGuide -> scrollGuideToNow(focus = true)
+                    inCenter && hasGuide -> guideBox.requestFocus()
                     inCenter || inGuide -> findViewById<View>(R.id.liveActions)?.findViewById<View>(R.id.actChannels)?.requestFocus()
                 }
                 return true
