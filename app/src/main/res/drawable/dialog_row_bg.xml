@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pop-up list line: orange outline when the remote is on it. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <inset android:insetLeft="6dp" android:insetRight="6dp">
+            <shape><corners android:radius="8dp" /><solid android:color="#40FF9F43" /><stroke android:width="2dp" android:color="@color/accent" /></shape>
+        </inset>
+    </item>
+    <item android:state_pressed="true">
+        <inset android:insetLeft="6dp" android:insetRight="6dp"><shape><corners android:radius="8dp" /><solid android:color="#33FFFFFF" /></shape></inset>
+    </item>
+    <item android:drawable="@android:color/transparent" />
+</selector>

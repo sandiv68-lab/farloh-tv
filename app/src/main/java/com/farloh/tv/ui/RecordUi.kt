@@ -288,6 +288,9 @@ object RecordUi {
                 .setPositiveButton("Record anyway") { _, _ -> next() }
                 .setNegativeButton("Cancel", null).show()
         }
+        // What recordings need (until "Don't show this again").
+        val showSetup = !activity.store.recSetupTipOff
+        if (showSetup) steps += { next -> setupHelp(activity, withTickBox = true, then = next) }
         if (!RecordScheduler.canExact(activity)) steps += { next ->
             AlertDialog.Builder(activity).setTitle("Start recordings on time")
                 .setMessage("To start recordings exactly on time, allow \"Alarms & reminders\" for Farloh TV.")
@@ -295,14 +298,11 @@ object RecordUi {
                 .setNegativeButton("Not now") { _, _ -> next() }
                 .setCancelable(false).show()
         }
-        // The box stays powered (on USB) when the TV is off: Android must let Farloh keep running then.
-        if (!runsInBackground(activity)) steps += { next ->
+        // The setup pop-up already offers this; otherwise still ask while Android limits the app.
+        if (!showSetup && !runsInBackground(activity)) steps += { next ->
             AlertDialog.Builder(activity).setTitle("Let Farloh TV run in the background")
-                .setMessage("Recordings happen while you're not using the app, and while the TV is switched off. " +
-                    "Allow Farloh TV to run in the background (no battery limits) so Android doesn't stop them.\n\n" +
-                    (if (activity.tvMode) "Also keep the box plugged in. If the box has Settings → System → Power & energy → " +
-                        "Energy modes, don't choose \"Low energy\", which switches the internet off in standby."
-                    else "Phones: keep it charging while recording."))
+                .setMessage("Recordings happen while you're not using the app and while the TV is off. " +
+                    "Allow Farloh TV to run in the background so Android doesn't stop them.")
                 .setPositiveButton("Allow") { _, _ -> askBackground(activity); next() }
                 .setNegativeButton("Not now") { _, _ -> next() }
                 .setCancelable(false).show()
@@ -322,6 +322,64 @@ object RecordUi {
         }
         val running = Recordings.files(activity).count { it.state == "recording" && it.end > a && it.scheduleId != s.id }
         return others + running
+    }
+
+    /**
+     * Recording setup: what Android and the box need so recordings work with the TV off.
+     * [withTickBox] adds "Don't show this again" (when setting up a recording).
+     */
+    fun setupHelp(activity: BaseActivity, withTickBox: Boolean, then: () -> Unit = {}) {
+        val d = activity.resources.displayMetrics.density
+        val bg = runsInBackground(activity)
+        val exact = RecordScheduler.canExact(activity)
+        fun status(ok: Boolean) = if (ok) "✓ allowed" else "✗ not allowed yet"
+        val text = buildString {
+            append("For recordings to work while you're not using the app:\n\n")
+            append("1. Turn off battery optimisation / energy saving for Farloh TV. ")
+            append("Some boxes and phones have their own setting as well, e.g. Apps → Farloh TV → Energy optimisation → Off.\n\n")
+            append("2. Allow all of Farloh TV's permissions, including Alarms & reminders (so recordings start on time) and notifications.\n\n")
+            append("3. The TV screen can be off, but the Android box must stay plugged in, switched on (standby is fine) and connected to the internet.")
+            if (activity.tvMode) append(" If the box has Settings → System → Power & energy → Energy modes, don't choose \"Low energy\" (it turns the internet off in standby).")
+            else append(" Phones: keep it charging.")
+            append("\n\nRight now Android says: running in the background ${status(bg)}")
+            if (Build.VERSION.SDK_INT >= 31) append(", on-time alarms ${status(exact)}")
+            append(".")
+        }
+        val tick = android.widget.CheckBox(activity).apply {
+            this.text = "Don't show this again"
+            setTextColor(ContextCompat.getColor(activity, R.color.text2))
+        }
+        val box = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            val p = (22 * d).toInt()
+            setPadding(p, (6 * d).toInt(), p, 0)
+            addView(TextView(activity).apply {
+                this.text = text
+                textSize = 15f
+                setTextColor(ContextCompat.getColor(activity, R.color.text))
+            })
+            if (withTickBox) addView(tick, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = (10 * d).toInt()
+            })
+        }
+        fun done() { if (withTickBox && tick.isChecked) activity.store.recSetupTipOff = true }
+        val b = AlertDialog.Builder(activity)
+            .setTitle("Before recording")
+            .setView(android.widget.ScrollView(activity).apply { addView(box) })
+            .setPositiveButton("OK") { _, _ -> done(); then() }
+            .setNegativeButton("Open Settings") { _, _ -> done(); openAppInfo(activity); then() }
+            .setCancelable(false)
+        if (!bg) b.setNeutralButton("Allow background") { _, _ -> done(); askBackground(activity); then() }
+        b.show()
+    }
+
+    /** Android's App info page for Farloh TV (battery / energy, permissions, Alarms & reminders). */
+    fun openAppInfo(activity: BaseActivity) {
+        try {
+            activity.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${activity.packageName}")))
+        } catch (e: Exception) {
+            activity.toast("Open the device's Settings → Apps → Farloh TV", long = true)
+        }
     }
 
     /** Android isn't limiting Farloh in the background (battery optimisation off for it). */

@@ -44,7 +44,6 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
-import androidx.media3.ui.TrackSelectionDialogBuilder
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.farloh.tv.R
@@ -1049,16 +1048,29 @@ class PlayerActivity : BaseActivity() {
         External.open(this, current)
     }
 
-    private fun trackDialog(type: Int, title: String) {
+    /** Audio track list in the app's own pop-up style (the player library's pop-up was grey). */
+    private fun audioTrackDialog() {
         val exo = player ?: return
-        if (exo.currentTracks.groups.none { it.type == type }) {
-            toast("No ${title.lowercase()} options for this ${if (isLive) "channel" else "video"}")
-            return
+        val tracks = exo.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+            .flatMap { g -> (0 until g.length).filter { g.isTrackSupported(it) }.map { g to it } }
+        if (tracks.isEmpty()) { toast("No audio track options for this ${if (isLive) "channel" else "video"}"); return }
+        val labels = tracks.mapIndexed { n, (g, t) ->
+            val f = g.getTrackFormat(t)
+            val ch = f.channelCount.takeIf { it > 0 }?.let { if (it > 2) "${it - 1}.1" else if (it == 2) "stereo" else "mono" }
+            val codec = codecName(f.sampleMimeType).takeIf { it != "?" }
+            (if (g.isTrackSelected(t)) "✓  " else "     ") + trackName(f, n + 1) +
+                listOfNotNull(ch, codec).joinToString(", ").let { if (it.isEmpty()) "" else "  ($it)" }
         }
-        TrackSelectionDialogBuilder(this, title, exo, type)
-            .setShowDisableOption(type == C.TRACK_TYPE_TEXT)
-            .setAllowAdaptiveSelections(false)
-            .build()
+        AlertDialog.Builder(this)
+            .setTitle("Audio track")
+            .setItems(labels.toTypedArray()) { _, which ->
+                val (g, t) = tracks[which]
+                exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                    .setOverrideForType(androidx.media3.common.TrackSelectionOverride(g.mediaTrackGroup, t)).build()
+                showGestureInfo("Audio: " + trackName(g.getTrackFormat(t), which + 1))
+            }
+            .setNegativeButton("Close", null)
             .show()
     }
 
@@ -1376,7 +1388,7 @@ class PlayerActivity : BaseActivity() {
         if (isLive) opts += "Channels" to { showPanel() }
         else if (p.kind == Kind.EPISODE && items.size > 1) opts += "Episodes" to { showPanel() }
         if (!isLive && exo != null) opts += "Playback speed: ${speedLabel(exo.playbackParameters.speed)}" to { chooseSpeed() }
-        opts += "Audio track" to { trackDialog(C.TRACK_TYPE_AUDIO, "Audio track") }
+        opts += "Audio track" to { audioTrackDialog() }
         if (Build.VERSION.SDK_INT >= 23) opts += "Sound output: ${AudioOutputs.preferred(this)?.let { AudioOutputs.label(it) } ?: "Automatic"}" to {
             SoundOutputs.choose(this) { d -> player?.setPreferredAudioDevice(d) }
         }
@@ -1428,7 +1440,7 @@ class PlayerActivity : BaseActivity() {
         on(R.id.actChannels, { showPanel() })
         // Press = next option (shown on screen), hold = the full list.
         on(R.id.actSpeed, { nextSpeed() }, { chooseSpeed() })
-        on(R.id.actAudio, { nextAudioTrack() }, { trackDialog(C.TRACK_TYPE_AUDIO, "Audio track") })
+        on(R.id.actAudio, { nextAudioTrack() }, { audioTrackDialog() })
         // Audio sync: press = +50 ms, quick double press = −50 ms, hold = the box.
         on(R.id.actSync, { syncPressed() }, { audioSyncDialog() })
         on(R.id.actCC, { toggleSubtitles() }, { subtitleMenu() })

@@ -335,6 +335,9 @@ class SettingsActivity : BaseActivity() {
             startActivity(android.content.Intent(this, DownloadsActivity::class.java)
                 .putExtra(DownloadsActivity.EXTRA_TAB, DownloadsActivity.TAB_RECORDINGS))
         }
+        r += Row.Item("Recording setup help", "", "What the box needs so recordings work with the TV off, with Open Settings") {
+            RecordUi.setupHelp(this, withTickBox = false) { refresh() }
+        }
         r += Row.Item("Start early", "${store.recPadBeforeMin} min", "In case the programme starts before the guide says") {
             val v = listOf(0, 1, 2, 5, 10)
             Dialogs.choose(this, "Start recordings early by", v.map { if (it == 0) "No extra time" else "$it minutes" }, v, store.recPadBeforeMin) {
@@ -362,9 +365,10 @@ class SettingsActivity : BaseActivity() {
         }
         if (android.os.Build.VERSION.SDK_INT >= 23) {
             val bg = RecordUi.runsInBackground(this)
-            r += Row.Item("Run in the background", if (bg) "Allowed" else "Not allowed",
-                "Needed so recordings carry on while you're not using the app or the TV is off") {
-                if (bg) toast("Already allowed") else RecordUi.askBackground(this)
+            r += Row.Item("Run in the background", if (bg) "Allowed by Android" else "Not allowed",
+                "Needed so recordings carry on while you're not using the app or the TV is off. " +
+                    "Some boxes also have their own energy optimisation for each app – turn it off for Farloh TV") {
+                if (bg) RecordUi.openAppInfo(this) else RecordUi.askBackground(this)
             }
         }
         if (android.os.Build.VERSION.SDK_INT >= 31) {
