@@ -37,7 +37,7 @@
         <item name="android:textAppearanceMedium">@style/Farloh.DialogText</item>
     </style>
 
-    <!-- In the player: the same pop-ups, see-through blue (80%) so the video shows behind, slightly bigger text. -->
+    <!-- In the player: the same pop-ups, see-through blue (90%) so the video shows behind, slightly bigger text. -->
     <style name="Theme.Farloh.Dialog.Player">
         <item name="android:windowBackground">@drawable/dialog_bg_player</item>
         <item name="android:backgroundDimAmount">0.3</item>

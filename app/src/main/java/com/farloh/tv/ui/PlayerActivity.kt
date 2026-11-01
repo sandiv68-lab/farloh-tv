@@ -454,7 +454,6 @@ class PlayerActivity : BaseActivity() {
         PlayQueue.index = index
         resumeOnStart = true
         handler.removeCallbacksAndMessages(null)
-        gateJob?.cancel()
         // Stop the stream first (no background buffering), then free every connection it used.
         player?.stop()
         StreamGate.close(player)
@@ -523,7 +522,9 @@ class PlayerActivity : BaseActivity() {
                 panel.setPadding(p[0] + side, p[1], p[2] + side, p[3] + b)
             }
             base.getValue(channelPanel).let { p ->
-                channelPanel.setPadding(p[0] + maxOf(bars.left, cut.left), p[1] + t, p[2], p[3] + b)
+                // The list sits at the top left like on TV: only the camera cut-out is avoided (the hidden
+                // status / navigation bars don't push it down or to the right).
+                channelPanel.setPadding(p[0] + cut.left, p[1] + cut.top, p[2], p[3] + b)
             }
             ViewCompat.onApplyWindowInsets(v, insets)
         }
@@ -902,8 +903,6 @@ class PlayerActivity : BaseActivity() {
         exo.playWhenReady = playing
     }
 
-    /** "Disconnect stream on exit": waiting for the server to free the old connection before the next stream. */
-    private var gateJob: Job? = null
     /** When the last channel / video started, and quiet retries since (the provider may still be freeing the old one). */
     private var switchedAt = 0L
     private var quietRetries = 0
@@ -917,32 +916,13 @@ class PlayerActivity : BaseActivity() {
         handler.removeCallbacks(reconnectRunnable)
         hideStatus()
         val start = if (!isLive && resume) store.resumePosition(p.resumeKey, p.playlistId) else 0L
-        gateJob?.cancel()
         switchedAt = System.currentTimeMillis()
         quietRetries = 0
         if (store.disconnectOn(p.playlistId)) {
-            // Stop the old stream completely (no more buffering or retries) and close its connections first.
+            // Stop the old stream completely (no more buffering or retries) and cut its connection before the next one.
             exo.stop()
             exo.clearMediaItems()
             StreamGate.close(exo)
-            val acc = store.accountFor(p.playlistId) ?: account
-            if (acc != null && store.maxConnections(p.playlistId) == 1) {
-                gateJob = lifecycleScope.launch {
-                    // Changing channel quickly: only the channel you stop on is opened (each press cancels this),
-                    // and the provider gets a moment to notice the old connection has closed.
-                    showBuffering(true)
-                    kotlinx.coroutines.delay(700)
-                    val freed = StreamGate.waitUntilFree(store, acc, p.playlistId, maxMs = 20_000) { active, max, sec ->
-                        // Only said when it takes a while (no flash on every channel change).
-                        if (sec >= 2) showStatus("Freeing the connection…\nYour provider still shows $active of $max in use ($sec s)")
-                    }
-                    hideStatus()
-                    if (!freed) toast("Your provider is still holding the old connection – starting anyway", long = true)
-                    if (player === exo && current === p) startStream(exo, p, start)
-                }
-                showStarted(p, start)
-                return
-            }
         }
         startStream(exo, p, start)
         showStarted(p, start)
@@ -1487,7 +1467,7 @@ class PlayerActivity : BaseActivity() {
             RecordUi.playerMenu(this, p, guideList().firstOrNull { it.isNow() })
         }
         if (favTarget(p) != null) {
-            opts += (if (isFav(p)) "★  Remove from Favourites" else "☆  Add to Favourites") to { toggleFavorite() }
+            opts += (if (isFav(p)) "Remove from Favourites" else "Add to Favourites") to { toggleFavorite() }
         }
         opts += "Open in external" to { openExternal() }
         opts += "Stats for Nerds" to { videoInfo() }
@@ -1501,7 +1481,7 @@ class PlayerActivity : BaseActivity() {
             store.playerGestures = !store.playerGestures
             toast(if (store.playerGestures) "Gestures on" else "Gestures off")
         }
-        // A – Z (the ★ / ☆ in front of Favourites doesn't count).
+        // A – Z.
         opts.sortBy { it.first.trimStart { c -> !c.isLetterOrDigit() }.lowercase() }
         AlertDialog.Builder(this)
             .setTitle("Settings")

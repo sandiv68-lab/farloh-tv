@@ -335,8 +335,12 @@ object RecordUi {
         fun status(ok: Boolean) = if (ok) "✓ allowed" else "✗ not allowed yet"
         val text = buildString {
             append("For recordings to work while you're not using the app:\n\n")
-            append("1. Turn off battery / energy optimisation for Farloh TV (Open Settings → Farloh TV → don't optimise / off). ")
-            append("Some boxes and phones also have it on the app's own page: App info → Energy optimisation → Off.\n\n")
+            if (activity.tvMode) {
+                append("1. Turn off energy optimisation for Farloh TV: Settings → Privacy → Special app access → Energy optimisation → Farloh TV → Off. ")
+                append("Alarms & reminders is on the same page: allow it for Farloh TV.\n\n")
+            } else {
+                append("1. Turn off battery optimisation for Farloh TV (Open Settings → Allow background usage / Unrestricted).\n\n")
+            }
             append("2. Allow all of Farloh TV's permissions, including Alarms & reminders (so recordings start on time) and notifications.\n\n")
             append("3. The TV screen can be off, but the Android box must stay plugged in, switched on (standby is fine) and connected to the internet.")
             if (activity.tvMode) append(" If the box has Settings → System → Power & energy → Energy modes, don't choose \"Low energy\" (it turns the internet off in standby).")
@@ -378,10 +382,29 @@ object RecordUi {
      * Falls back to Farloh's App info page where a device doesn't have that screen.
      */
     fun openEnergySettings(activity: BaseActivity) {
-        if (Build.VERSION.SDK_INT >= 23) {
-            try { activity.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); return } catch (e: Exception) { }
-        }
+        if (activity.tvMode) { openSpecialAccess(activity, "Energy optimisation"); return }
+        if (Build.VERSION.SDK_INT >= 23 && open(activity, Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))) return
         openAppInfo(activity)
+    }
+
+    /**
+     * Android TV / Google TV keep these under Settings → Privacy → Special app access ([item] → Farloh TV).
+     * There's no direct link to that page, so this opens as close to it as the box allows and says where to go.
+     */
+    private fun openSpecialAccess(activity: BaseActivity, item: String) {
+        activity.toast("Settings → Privacy → Special app access → $item → Farloh TV", long = true)
+        val tries = listOf(
+            Intent("android.settings.SPECIAL_APP_ACCESS_SETTINGS"),
+            Intent(Settings.ACTION_PRIVACY_SETTINGS),
+            Intent(Settings.ACTION_SETTINGS),
+        )
+        for (i in tries) if (open(activity, i)) return
+    }
+
+    /** Starts [i] only if something on the device really handles it. */
+    private fun open(activity: BaseActivity, i: Intent): Boolean {
+        if (activity.packageManager.resolveActivity(i, 0) == null) return false
+        return try { activity.startActivity(i); true } catch (e: Exception) { false }
     }
 
     /** Android's App info page for Farloh TV (battery / energy, permissions, Alarms & reminders). */
@@ -416,6 +439,7 @@ object RecordUi {
 
     fun openAlarmSettings(activity: BaseActivity) {
         if (Build.VERSION.SDK_INT < 31) return
+        if (activity.tvMode) { openSpecialAccess(activity, "Alarms & reminders"); return }
         try {
             activity.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${activity.packageName}")))
         } catch (e: Exception) {

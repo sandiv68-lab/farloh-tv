@@ -1,10 +1,7 @@
 package com.farloh.tv.player
 
-import com.farloh.tv.data.Account
 import com.farloh.tv.data.Store
-import com.farloh.tv.data.Xtream
 import com.farloh.tv.net.Net
-import kotlinx.coroutines.delay
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
@@ -48,23 +45,4 @@ object StreamGate {
     fun streamUrl(store: Store, p: Playable): String =
         if (p.kind == Kind.LIVE && store.disconnectOn(p.playlistId) && p.url.endsWith(".m3u8", ignoreCase = true))
             p.url.dropLast(5) + ".ts" else p.url
-
-    /**
-     * 1-connection subscriptions: waits (up to [maxMs]) until the server shows a free connection.
-     * Returns false if it gave up (the next stream is started anyway).
-     */
-    suspend fun waitUntilFree(
-        store: Store, account: Account, pid: String?, maxMs: Long = 10_000,
-        progress: (active: Int, max: Int, seconds: Int) -> Unit = { _, _, _ -> },
-    ): Boolean {
-        if (!store.disconnectOn(pid) || store.maxConnections(pid) != 1) return true
-        val started = System.currentTimeMillis()
-        while (System.currentTimeMillis() - started < maxMs) {
-            val (active, max) = Xtream.connections(account) ?: return true // can't ask: don't hold things up
-            if (active < max) return true
-            progress(active, max, ((System.currentTimeMillis() - started) / 1000).toInt())
-            delay(1_000)
-        }
-        return false
-    }
 }

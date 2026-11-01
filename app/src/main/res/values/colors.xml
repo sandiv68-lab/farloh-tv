@@ -2,8 +2,8 @@
     <color name="bg_deep">#070B1A</color>
     <color name="panel">#E00C1430</color>
     <color name="panel_solid">#0E1630</color>
-    <!-- Pop-ups in the player: the same blue at 80% (20% see-through). -->
-    <color name="dialog_panel_player">#CC0E1630</color>
+    <!-- Pop-ups in the player: the same blue at 90% (10% see-through). -->
+    <color name="dialog_panel_player">#E60E1630</color>
     <color name="accent">#FF9F43</color>
     <color name="accent2">#4FC3F7</color>
     <color name="text">#FFFFFF</color>

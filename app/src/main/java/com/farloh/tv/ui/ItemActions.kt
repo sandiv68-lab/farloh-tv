@@ -78,7 +78,7 @@ object ItemOptions {
             }
             is Show -> opts += "Open" to { openItemDetails(activity, item) }
         }
-        opts += (if (isFav) "★  Remove from Favourites" else "☆  Add to Favourites") to {
+        opts += (if (isFav) "Remove from Favourites" else "Add to Favourites") to {
             val added = store.toggleFavorite(item.id, section, item.playlistId)
             onChanged()
         }

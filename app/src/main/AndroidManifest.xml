@@ -42,6 +42,11 @@
             <action android:name="android.intent.action.GET_CONTENT" />
             <data android:mimeType="*/*" />
         </intent>
+        <!-- Settings screens opened for recordings (energy optimisation, alarms). -->
+        <intent><action android:name="android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS" /></intent>
+        <intent><action android:name="android.settings.SPECIAL_APP_ACCESS_SETTINGS" /></intent>
+        <intent><action android:name="android.settings.PRIVACY_SETTINGS" /></intent>
+        <intent><action android:name="android.settings.SETTINGS" /></intent>
         <!-- Voice search (Google or the TV box's own speech service). -->
         <intent>
             <action android:name="android.speech.action.RECOGNIZE_SPEECH" />

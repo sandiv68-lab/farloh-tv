@@ -326,6 +326,16 @@ class BrowseActivity : BaseActivity() {
                     epgJob = lifecycleScope.launch { delay(400); showGuide(item as LiveChannel) }
                 }
             }
+            // TV: the selected channel's name scrolls when it's too long (and stops when the remote moves on).
+            if (tvMode) itemsRv.viewTreeObserver.addOnGlobalFocusChangeListener { old, new ->
+                listOf(old to false, new to true).forEach { (view, on) ->
+                    val row = view?.takeIf { it.parent === itemsRv } ?: return@forEach
+                    row.findViewById<TextView>(R.id.name)?.apply {
+                        ellipsize = if (on) android.text.TextUtils.TruncateAt.MARQUEE else android.text.TextUtils.TruncateAt.END
+                        isSelected = on
+                    }
+                }
+            }
         } else {
             val available = screenWidthDp - (if (wide) 270 else 0) - 24
             val span = (available / 150).coerceIn(2, 10)
@@ -507,7 +517,8 @@ class BrowseActivity : BaseActivity() {
 
     private fun bindChannel(v: View, ch: LiveChannel) {
         v.findViewById<TextView>(R.id.num).text = ch.num
-        val chosen = !tvMode && touchedChannel == keyOf(ch)
+        // TV: the channel the remote is on (its guide shows beside the list); phones: the one tapped once.
+        val chosen = if (tvMode) v.isFocused else touchedChannel == keyOf(ch)
         v.findViewById<TextView>(R.id.name).apply {
             text = ch.name
             // The chosen channel's name scrolls when it's too long to fit.

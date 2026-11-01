@@ -376,9 +376,10 @@ class SettingsActivity : BaseActivity() {
         }
         if (android.os.Build.VERSION.SDK_INT >= 23) {
             val bg = RecordUi.runsInBackground(this)
-            r += Row.Item("Run in the background", if (bg) "Allowed by Android" else "Not allowed",
+            r += Row.Item("Run in the background", if (bg) "Allowed" else "Not allowed",
                 "Needed so recordings carry on while you're not using the app or the TV is off. " +
-                    "Some boxes also have their own energy optimisation for each app – turn it off for Farloh TV") {
+                    if (tvMode) "Also turn off Settings → Privacy → Special app access → Energy optimisation → Farloh TV"
+                    else "Some phones also have their own battery saver for each app – turn it off for Farloh TV") {
                 if (bg) RecordUi.openEnergySettings(this) else RecordUi.askBackground(this)
             }
         }
