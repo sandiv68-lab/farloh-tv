@@ -183,22 +183,6 @@ class Store private constructor(context: Context) {
         get() = prefs.getString(k("user_info"), null)?.let { runCatching { JSONObject(it) }.getOrNull() }
         set(value) = prefs.edit().putString(k("user_info"), value?.toString()).apply()
 
-    /** Subscription info saved for a playlist (null = the one in use). */
-    fun userInfoFor(pid: String?): JSONObject? =
-        prefs.getString(k("user_info", pid), null)?.let { runCatching { JSONObject(it) }.getOrNull() }
-
-    /** How many streams the playlist's subscription allows at once (null = unknown). */
-    fun maxConnections(pid: String?): Int? = userInfoFor(pid)?.optString("max_connections")?.trim()?.toIntOrNull()
-
-    /** Settings → General → Disconnect stream on exit: "auto" (on for 1-connection accounts), "on" or "off". */
-    var disconnectMode: String by StringPref("disconnect_mode", "auto")
-
-    fun disconnectOn(pid: String?): Boolean = when (disconnectMode) {
-        "on" -> true
-        "off" -> false
-        else -> maxConnections(pid) == 1
-    }
-
     var initialLoadDone: Boolean
         get() = prefs.getBoolean(k("initial_load_done"), false)
         set(value) = prefs.edit().putBoolean(k("initial_load_done"), value).apply()

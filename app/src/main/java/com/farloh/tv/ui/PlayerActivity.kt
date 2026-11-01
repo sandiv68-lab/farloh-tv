@@ -58,7 +58,6 @@ import com.farloh.tv.player.AudioDelayProcessor
 import com.farloh.tv.player.External
 import com.farloh.tv.player.PlayerFactory
 import com.farloh.tv.player.SubtitleDelay
-import com.farloh.tv.player.StreamGate
 import com.farloh.tv.player.Kind
 import com.farloh.tv.player.PlayQueue
 import com.farloh.tv.player.Playable
@@ -457,9 +456,6 @@ class PlayerActivity : BaseActivity() {
         PlayQueue.index = index
         resumeOnStart = true
         handler.removeCallbacksAndMessages(null)
-        // Stop the stream first (no background buffering), then free every connection it used.
-        player?.stop()
-        StreamGate.close(player)
         player?.release()
         player = null
     }
@@ -529,7 +525,9 @@ class PlayerActivity : BaseActivity() {
             base.getValue(channelPanel).let { p ->
                 // The list sits at the top left like on TV: only the camera cut-out is avoided (the hidden
                 // status / navigation bars don't push it down or to the right).
-                channelPanel.setPadding(p[0] + cut.left, p[1] + cut.top, p[2], p[3] + b)
+                // (While the list is open the status bar shows, so it isn't covered: see showPanel.)
+                val status = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+                channelPanel.setPadding(p[0] + cut.left, p[1] + maxOf(cut.top, status), p[2], p[3] + b)
             }
             ViewCompat.onApplyWindowInsets(v, insets)
         }
@@ -770,7 +768,7 @@ class PlayerActivity : BaseActivity() {
     private fun mediaItem(p: Playable): MediaItem {
         // A downloaded subtitle that's used is kept (unused ones are cleaned up after 30 days).
         subFile(p).takeIf { it.exists() }?.setLastModified(System.currentTimeMillis())
-        return PlayerFactory.mediaItem(p, subFile(p), StreamGate.streamUrl(store, p))
+        return PlayerFactory.mediaItem(p, subFile(p))
     }
 
     // ---------------- Subtitles ----------------
@@ -902,15 +900,10 @@ class PlayerActivity : BaseActivity() {
         val exo = player ?: return
         val pos = exo.currentPosition
         val playing = exo.playWhenReady
-        if (store.disconnectOn(current.playlistId)) { exo.stop(); StreamGate.close(exo) }
         exo.setMediaItem(mediaItem(current), pos)
         exo.prepare()
         exo.playWhenReady = playing
     }
-
-    /** When the last channel / video started, and quiet retries since (the provider may still be freeing the old one). */
-    private var switchedAt = 0L
-    private var quietRetries = 0
 
     private fun playCurrent(resume: Boolean) {
         val exo = player ?: return
@@ -921,45 +914,9 @@ class PlayerActivity : BaseActivity() {
         handler.removeCallbacks(reconnectRunnable)
         hideStatus()
         val start = if (!isLive && resume) store.resumePosition(p.resumeKey, p.playlistId) else 0L
-        switchedAt = System.currentTimeMillis()
-        quietRetries = 0
-        if (store.disconnectOn(p.playlistId)) {
-            // Stop the old stream completely (no more buffering or retries) and cut its connection before the next one.
-            exo.stop()
-            exo.clearMediaItems()
-            StreamGate.close(exo)
-        }
-        startStream(exo, p, start)
-        showStarted(p, start)
-    }
-
-    /** The server's answer when it refused a stream (e.g. 403 / 509 = connection limit), if that's what happened. */
-    private fun httpStatus(e: Throwable?): Int? {
-        var c = e
-        while (c != null) {
-            if (c is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) return c.responseCode
-            c = c.cause
-        }
-        return null
-    }
-
-    private fun refusedByProvider(e: PlaybackException) = httpStatus(e)?.let { it == 401 || it == 403 || it in 405..429 || it == 458 || it == 509 || it == 503 } == true
-
-    private fun errorReason(e: PlaybackException) = httpStatus(e)?.let { "server answered $it" } ?: e.errorCodeName
-
-    /** The player's loading circle, also while waiting between quiet retries (when the player itself is idle). */
-    private fun showBuffering(on: Boolean) {
-        playerView.findViewById<View>(androidx.media3.ui.R.id.exo_buffering)?.visibility = if (on) View.VISIBLE else View.GONE
-    }
-
-    private fun startStream(exo: ExoPlayer, p: Playable, start: Long) {
         exo.setMediaItem(mediaItem(p), start)
         exo.prepare()
         exo.play()
-    }
-
-    /** The overlay / title for what's starting. */
-    private fun showStarted(p: Playable, start: Long) {
         if (isLive) {
             store.addToHistory(p.id, p.playlistId)
             nowNext = emptyList()
@@ -974,7 +931,6 @@ class PlayerActivity : BaseActivity() {
 
     private fun reconnect() {
         val exo = player ?: return
-        if (store.disconnectOn(current.playlistId)) { exo.stop(); StreamGate.close(exo) }
         exo.setMediaItem(mediaItem(current))
         exo.prepare()
         exo.play()
@@ -982,9 +938,7 @@ class PlayerActivity : BaseActivity() {
 
     private fun scheduleReconnect(reason: String) {
         if (retries >= 5) {
-            showStatus("This channel isn't responding ($reason).\n\n" +
-                (if (store.maxConnections(current.playlistId) == 1) "Your subscription allows 1 connection: make sure nothing else is playing on it. " else "") +
-                "Try another channel, switch the Live TV stream format in Settings, or use Open in external.")
+            showStatus("This channel isn't responding ($reason).\n\nTry another channel, switch the Live TV stream format in Settings, or use Open in external.")
             return
         }
         retries++
@@ -996,7 +950,7 @@ class PlayerActivity : BaseActivity() {
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) {
             when (state) {
-                Player.STATE_READY -> { retries = 0; hideStatus(); showBuffering(false) }
+                Player.STATE_READY -> { retries = 0; hideStatus() }
                 Player.STATE_ENDED -> if (isLive) scheduleReconnect("stream ended") else onVideoEnded()
                 else -> Unit
             }
@@ -1018,31 +972,15 @@ class PlayerActivity : BaseActivity() {
 
         override fun onPlayerError(error: PlaybackException) {
             val exo = player ?: return
-            // Just after switching on a 1-connection account the provider may not have freed the old connection
-            // yet: try again quietly for a few seconds before saying anything.
-            if (store.disconnectOn(current.playlistId) && System.currentTimeMillis() - switchedAt < 30_000 && quietRetries < 12) {
-                quietRetries++
-                val p = current
-                val pos = if (isLive) 0L else exo.currentPosition.takeIf { it > 0 } ?: store.resumePosition(p.resumeKey, p.playlistId)
-                exo.stop()
-                StreamGate.close(exo)
-                handler.removeCallbacks(reconnectRunnable)
-                showBuffering(true) // just the loading circle while it tries again
-                val wait = (1_000L + quietRetries * 500L).coerceAtMost(3_000L)
-                handler.postDelayed({ if (player === exo && current === p) startStream(exo, p, pos) }, wait)
-                return
-            }
             if (isLive) {
                 if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
                     exo.seekToDefaultPosition()
                     exo.prepare()
                 } else {
-                    scheduleReconnect(errorReason(error))
+                    scheduleReconnect(error.errorCodeName)
                 }
             } else {
-                showStatus("Can't play this video (${errorReason(error)}).\n\n" +
-                    (if (refusedByProvider(error)) "Your provider refused the stream – if your subscription allows only 1 connection, " +
-                        "another device or app may still be using it. " else "") + "Try again, or use Open in external.")
+                showStatus("Can't play this video (${error.errorCodeName}).\n\nTry Open in external.")
                 playerView.showController()
             }
         }
@@ -1334,6 +1272,9 @@ class PlayerActivity : BaseActivity() {
         hideInfo()
         playerView.hideController()
         channelPanel.visibility = View.VISIBLE
+        // Phones: with the system bars hidden, Android uses the first Back swipe just to show them, so Back
+        // needed two swipes to close the list. Showing them while the list is open makes one swipe enough.
+        if (!tvMode) WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
         val title = if (isLive) PlayQueue.categoryName.ifBlank { "Channels" }
             else current.subtitle?.let { show -> current.season?.let { "$show – ${if (it == 0) "Specials" else "Season $it"}" } ?: show } ?: "Episodes"
         showList(items, title)
@@ -1341,6 +1282,7 @@ class PlayerActivity : BaseActivity() {
 
     private fun hidePanel() {
         channelPanel.visibility = View.GONE
+        if (!tvMode) hideSystemBars()
     }
 
     // ---------------- Video options ----------------
