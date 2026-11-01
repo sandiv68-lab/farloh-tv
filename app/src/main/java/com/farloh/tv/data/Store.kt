@@ -319,8 +319,6 @@ class Store private constructor(context: Context) {
     /** Minutes recorded before the start / after the end of the programme (in case it runs off schedule). */
     var recPadBeforeMin: Int by IntPref("rec_pad_before", 2)
     var recPadAfterMin: Int by IntPref("rec_pad_after", 5)
-    /** The "Before recording" setup pop-up was ticked "Don't show this again". */
-    var recSetupTipOff: Boolean by BoolPref("rec_setup_tip_off", false)
     /** Folder recordings are saved to; "" = device storage. */
     var recFolder: String by StringPref("rec_folder", "")
 

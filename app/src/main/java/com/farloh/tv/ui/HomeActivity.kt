@@ -72,13 +72,9 @@ class HomeActivity : BaseActivity() {
         if (store.viewPlaylists().any { !store.isLoaded(it.id) }) firstLoad()
         // Recordings: set the next alarm (and start any that should be recording now).
         runCatching { com.farloh.tv.record.RecordScheduler.reschedule(this) }
-        // Recordings are set up but Android may stop the app in the background: ask (again) to allow it.
-        if (savedInstanceState == null && com.farloh.tv.data.Recordings.schedules(this).isNotEmpty() && !RecordUi.runsInBackground(this)) {
-            AlertDialog.Builder(this).setTitle("Recordings need background running")
-                .setMessage("You have recordings set up. Allow Farloh TV to run in the background so they work while the TV is off.")
-                .setPositiveButton("Allow") { _, _ -> RecordUi.askBackground(this) }
-                .setNegativeButton("Not now", null)
-                .show()
+        // Recordings are set up but something they need isn't allowed (any more): show the checklist.
+        if (savedInstanceState == null && com.farloh.tv.data.Recordings.schedules(this).isNotEmpty() && !RecordSetup.allReady(this)) {
+            RecordSetup.show(this)
         }
     }
 

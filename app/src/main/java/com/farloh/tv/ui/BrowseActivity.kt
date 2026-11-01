@@ -237,7 +237,8 @@ class BrowseActivity : BaseActivity() {
             box.addView(TextView(this).apply {
                 text = if (mode == current) "●  $label" else "○  $label"
                 textSize = 16f
-                setTextColor(ContextCompat.getColor(this@BrowseActivity, if (mode == current) R.color.accent else R.color.text))
+                setTextColor(ContextCompat.getColor(this@BrowseActivity, R.color.text))
+                if (mode == current) setTypeface(typeface, android.graphics.Typeface.BOLD)
                 setBackgroundResource(R.drawable.focus_bg)
                 isFocusable = true; isClickable = true
                 minHeight = (44 * d).toInt()

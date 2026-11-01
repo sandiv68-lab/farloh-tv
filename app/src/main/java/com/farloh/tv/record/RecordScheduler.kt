@@ -72,8 +72,8 @@ object RecordScheduler {
             ContextCompat.startForegroundService(ctx, i)
         } catch (e: Exception) {
             // Android didn't allow it from the background (e.g. alarms not allowed to be exact).
-            RecordService.notifyProblem(ctx, "A recording couldn't start", "Open Farloh TV to start it. To avoid this, allow " +
-                "\"Alarms & reminders\" for Farloh TV (Settings → Recordings).")
+            RecordService.notifyProblem(ctx, "A recording couldn't start", "Open Farloh TV to start it. To avoid this, " +
+                "check Settings → Recordings → Recording setup in Farloh TV.")
         }
     }
 

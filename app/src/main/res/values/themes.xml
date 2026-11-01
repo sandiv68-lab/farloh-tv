@@ -23,6 +23,9 @@
     <!-- Every pop-up: compact lines, the app's font, buttons not in capitals. -->
     <style name="Theme.Farloh.Dialog" parent="Theme.AppCompat.Dialog.Alert">
         <item name="colorAccent">@color/accent</item>
+        <!-- Tick boxes and choice circles in pop-ups: the same white as the text (orange is only for "you are here"). -->
+        <item name="colorControlActivated">@color/text</item>
+        <item name="colorControlNormal">@color/text2</item>
         <item name="android:windowBackground">@drawable/dialog_bg</item>
         <item name="android:textColorPrimary">@color/text</item>
         <item name="android:textColorSecondary">@color/text2</item>

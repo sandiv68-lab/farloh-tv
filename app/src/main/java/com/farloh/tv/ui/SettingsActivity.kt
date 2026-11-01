@@ -374,24 +374,9 @@ class SettingsActivity : BaseActivity() {
             }
         }
         r += Row.Sub("Setup")
-        r += Row.Item("Recording setup help", "", "What the box needs so recordings work with the TV off, with Open Settings") {
-            RecordUi.setupHelp(this, withTickBox = false) { refresh() }
-        }
-        if (android.os.Build.VERSION.SDK_INT >= 23) {
-            val bg = RecordUi.runsInBackground(this)
-            r += Row.Item("Run in the background", if (bg) "Allowed" else "Not allowed",
-                "Needed so recordings carry on while you're not using the app or the TV is off. " +
-                    if (tvMode) "Also turn off Settings → Privacy → Special app access → Energy optimisation → Farloh TV"
-                    else "Some phones also have their own battery saver for each app – turn it off for Farloh TV") {
-                if (bg) RecordUi.openEnergySettings(this) else RecordUi.askBackground(this)
-            }
-        }
-        if (android.os.Build.VERSION.SDK_INT >= 31) {
-            val exact = com.farloh.tv.record.RecordScheduler.canExact(this)
-            r += Row.Item("Start recordings on time", if (exact) "Allowed" else "Not allowed",
-                "Android's \"Alarms & reminders\" permission, so recordings start exactly on time") {
-                if (exact) toast("Already allowed") else RecordUi.openAlarmSettings(this)
-            }
+        r += Row.Item("Recording setup", RecordSetup.summary(this),
+            "Alarms & reminders, background activity and energy optimisation – what recordings need with the TV off") {
+            RecordSetup.show(this) { refresh() }
         }
 
         r += Row.Header("Parental control", "parental", R.drawable.ic_lock,
