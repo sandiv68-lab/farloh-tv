@@ -47,6 +47,9 @@
         <intent><action android:name="android.settings.SPECIAL_APP_ACCESS_SETTINGS" /></intent>
         <intent><action android:name="android.settings.PRIVACY_SETTINGS" /></intent>
         <intent><action android:name="android.settings.SETTINGS" /></intent>
+        <intent><action android:name="android.settings.APPLICATION_DETAILS_SETTINGS" /><data android:scheme="package" /></intent>
+        <intent><action android:name="android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" /><data android:scheme="package" /></intent>
+        <intent><action android:name="android.settings.REQUEST_SCHEDULE_EXACT_ALARM" /><data android:scheme="package" /></intent>
         <!-- Voice search (Google or the TV box's own speech service). -->
         <intent>
             <action android:name="android.speech.action.RECOGNIZE_SPEECH" />

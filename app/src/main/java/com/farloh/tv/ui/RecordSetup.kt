@@ -44,7 +44,7 @@ object RecordSetup {
         return listOf(alarms, background, energy)
     }
 
-    /** "3 of 3 ready" etc. for the Settings row. */
+    /** "Ready ✓" or "2 to fix" for the Settings row. */
     fun summary(a: BaseActivity): String {
         val c = checks(a)
         val ok = c.count { it.ok }
@@ -120,7 +120,13 @@ object RecordSetup {
         dialog.setOnDismissListener { then() }
         dialog.setOnShowListener {
             // Back from Android's settings: show the new statuses.
-            dialog.window?.decorView?.viewTreeObserver?.addOnWindowFocusChangeListener { focused -> if (focused) fill() }
+            dialog.window?.decorView?.viewTreeObserver?.addOnWindowFocusChangeListener { focused ->
+                if (!focused) return@addOnWindowFocusChangeListener
+                val at = (0 until list.childCount).firstOrNull { list.getChildAt(it).hasFocus() }
+                fill()
+                // Keep the remote on the same row after the refresh.
+                list.getChildAt(at ?: checks(a).indexOfFirst { !it.ok }.coerceAtLeast(0))?.requestFocus()
+            }
             list.getChildAt(checks(a).indexOfFirst { !it.ok }.coerceAtLeast(0))?.requestFocus()
         }
         dialog.show()
