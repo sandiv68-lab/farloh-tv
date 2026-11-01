@@ -28,6 +28,11 @@
         <item name="android:textColorSecondary">@color/text2</item>
         <item name="alertDialogStyle">@style/Farloh.AlertDialog</item>
         <item name="dialogPreferredPadding">20dp</item>
+        <!-- The highlighted line in pop-up lists: orange outline + tint, like the app's own lists. -->
+        <item name="listChoiceBackgroundIndicator">@drawable/dialog_list_selector</item>
+        <item name="android:listChoiceBackgroundIndicator">@drawable/dialog_list_selector</item>
+        <item name="android:listSelector">@drawable/dialog_list_selector</item>
+        <item name="listDividerAlertDialog">@null</item>
         <item name="farlohDialogItemSize">14sp</item>
         <item name="android:windowTitleStyle">@style/Farloh.DialogTitle</item>
         <item name="buttonBarButtonStyle">@style/Farloh.DialogButton</item>

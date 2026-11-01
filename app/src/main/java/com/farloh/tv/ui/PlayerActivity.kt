@@ -525,9 +525,7 @@ class PlayerActivity : BaseActivity() {
             base.getValue(channelPanel).let { p ->
                 // The list sits at the top left like on TV: only the camera cut-out is avoided (the hidden
                 // status / navigation bars don't push it down or to the right).
-                // (While the list is open the status bar shows, so it isn't covered: see showPanel.)
-                val status = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
-                channelPanel.setPadding(p[0] + cut.left, p[1] + maxOf(cut.top, status), p[2], p[3] + b)
+                channelPanel.setPadding(p[0] + cut.left, p[1] + cut.top, p[2], p[3] + b)
             }
             ViewCompat.onApplyWindowInsets(v, insets)
         }
@@ -1272,9 +1270,8 @@ class PlayerActivity : BaseActivity() {
         hideInfo()
         playerView.hideController()
         channelPanel.visibility = View.VISIBLE
-        // Phones: with the system bars hidden, Android uses the first Back swipe just to show them, so Back
-        // needed two swipes to close the list. Showing them while the list is open makes one swipe enough.
-        if (!tvMode) WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
+        // Tapping the picture beside the list closes it (movies & shows too, like Live TV).
+        tapLayer.visibility = View.VISIBLE
         val title = if (isLive) PlayQueue.categoryName.ifBlank { "Channels" }
             else current.subtitle?.let { show -> current.season?.let { "$show – ${if (it == 0) "Specials" else "Season $it"}" } ?: show } ?: "Episodes"
         showList(items, title)
@@ -1282,7 +1279,7 @@ class PlayerActivity : BaseActivity() {
 
     private fun hidePanel() {
         channelPanel.visibility = View.GONE
-        if (!tvMode) hideSystemBars()
+        if (!isLive) tapLayer.visibility = View.GONE
     }
 
     // ---------------- Video options ----------------

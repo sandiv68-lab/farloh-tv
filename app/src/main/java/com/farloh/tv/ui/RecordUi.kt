@@ -241,10 +241,14 @@ object RecordUi {
         val hours = NumberPicker(activity).apply {
             minValue = 0; maxValue = 23; value = c.get(Calendar.HOUR_OF_DAY); setFormatter { "%02d".format(it) }
             descendantFocusability = NumberPicker.FOCUS_BLOCK_DESCENDANTS
+            setBackgroundResource(R.drawable.focus_bg) // orange outline on the one the remote is on
+            setPadding(24, 0, 24, 0)
         }
         val minutes = NumberPicker(activity).apply {
             minValue = 0; maxValue = 59; value = c.get(Calendar.MINUTE); setFormatter { "%02d".format(it) }
             descendantFocusability = NumberPicker.FOCUS_BLOCK_DESCENDANTS
+            setBackgroundResource(R.drawable.focus_bg) // orange outline on the one the remote is on
+            setPadding(24, 0, 24, 0)
         }
         val box = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -351,6 +355,8 @@ object RecordUi {
         }
         val tick = android.widget.CheckBox(activity).apply {
             this.text = "Don't show this again"
+            setBackgroundResource(R.drawable.focus_bg)
+            setPadding(8, 8, 24, 8)
             setTextColor(ContextCompat.getColor(activity, R.color.text2))
         }
         val box = LinearLayout(activity).apply {

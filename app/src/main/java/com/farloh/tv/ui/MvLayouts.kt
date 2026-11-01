@@ -71,6 +71,8 @@ object MvLayouts {
         val d = activity.resources.displayMetrics.density
         val check = android.widget.CheckBox(activity).apply {
             text = "Don't show this again"
+            setBackgroundResource(R.drawable.focus_bg)
+            setPadding(8, 8, 24, 8)
             setTextColor(ContextCompat.getColor(activity, R.color.text2))
         }
         val box = LinearLayout(activity).apply {

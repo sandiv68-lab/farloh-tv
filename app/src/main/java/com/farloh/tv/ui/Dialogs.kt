@@ -37,6 +37,10 @@ object Dialogs {
             setSingleLine(true)
             setTextColor(ContextCompat.getColor(activity, R.color.text))
             setHintTextColor(ContextCompat.getColor(activity, R.color.text2))
+            // Same typing box as the rest of the app (orange outline when selected).
+            setBackgroundResource(R.drawable.field_bg)
+            val p = (14 * activity.resources.displayMetrics.density).toInt()
+            setPadding(p, p * 3 / 4, p, p * 3 / 4)
             inputType = when {
                 numeric && password -> InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
                 numeric -> InputType.TYPE_CLASS_NUMBER

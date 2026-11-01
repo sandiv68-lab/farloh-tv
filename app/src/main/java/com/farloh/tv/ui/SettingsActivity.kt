@@ -29,6 +29,8 @@ class SettingsActivity : BaseActivity() {
     private sealed class Row {
         class Header(val title: String, val key: String, val icon: Int, val summary: String = "") : Row()
         class Item(val title: String, val value: String, val hint: String? = null, val action: () -> Unit) : Row()
+        /** A small heading inside a section's page, grouping its rows. */
+        class Sub(val title: String) : Row()
     }
 
     private lateinit var list: RecyclerView
@@ -58,7 +60,7 @@ class SettingsActivity : BaseActivity() {
     }
 
     private val adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-        override fun getItemViewType(position: Int) = if (rows[position] is Row.Header) 0 else 1
+        override fun getItemViewType(position: Int) = if (rows[position] is Row.Item) 1 else 0
         override fun getItemCount() = rows.size
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
             val layout = if (viewType == 0) R.layout.row_header else R.layout.row_setting
@@ -78,6 +80,7 @@ class SettingsActivity : BaseActivity() {
             val v = holder.itemView
             when (val r = rows[position]) {
                 is Row.Header -> (v as TextView).text = r.title
+                is Row.Sub -> (v as TextView).text = r.title
                 is Row.Item -> {
                     v.findViewById<TextView>(R.id.title).text = r.title
                     v.findViewById<TextView>(R.id.value).text = r.value
@@ -154,7 +157,9 @@ class SettingsActivity : BaseActivity() {
         rows = g.items
         adapter.notifyDataSetChanged()
         list.scrollToPosition(0)
-        list.post { list.layoutManager?.findViewByPosition(0)?.requestFocus() }
+        // The first setting (not a sub-heading).
+        val first = rows.indexOfFirst { it is Row.Item }.coerceAtLeast(0)
+        list.post { list.layoutManager?.findViewByPosition(first)?.requestFocus() }
     }
 
     /** Rebuilds the rows after any change; keeps focus where it was. */
@@ -172,28 +177,14 @@ class SettingsActivity : BaseActivity() {
 
     private fun buildRows(): List<Row> {
         val r = ArrayList<Row>()
-
-        r += Row.Header("General", "general", R.drawable.ic_settings, "Subtitles, picture-in-picture, recently added, history")
-        r += Row.Item("Subtitles", label(SUB_MODES, store.subtitleMode),
-            "Auto shows subtitles only when the stream marks them as default") {
-            Dialogs.choose(this, "Subtitles", SUB_MODES.map { it.second }, SUB_MODES.map { it.first }, store.subtitleMode) {
-                store.subtitleMode = it; refresh()
-            }
-        }
-        r += Row.Item("Subtitle language", label(LANGUAGES, store.subtitleLanguage)
-            .ifEmpty { store.subtitleLanguage.uppercase() }, "Used when Subtitles is On") { chooseLanguage() }
-        val pipHere = Build.VERSION.SDK_INT >= 26 &&
-            packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)
-        r += Row.Item("Picture-in-picture", if (pipHere) onOff(store.pipEnabled) else "Not available",
-            if (pipHere) "Keep watching in a small window when you press Home or Back in the player"
-            else "This device's Android doesn't include picture-in-picture") {
-            store.pipEnabled = !store.pipEnabled; refresh()
-        }
+        r += Row.Header("General", "general", R.drawable.ic_settings, "Recently added, history, TV guide")
+        r += Row.Sub("Lists")
         r += Row.Item("Recently added limit", limitLabel(store.recentLimit), "Size of the \"Recently added\" group in Movies and TV Shows") {
             Dialogs.choose(this, "Recently added limit", RECENT_LIMITS.map { limitLabel(it) }, RECENT_LIMITS, store.recentLimit) {
                 store.recentLimit = it; refresh()
             }
         }
+        r += Row.Sub("History")
         r += Row.Item("Search history", "Last ${store.searchHistoryLimit} searches", "Recent searches shown on the Search screen") {
             Dialogs.choose(this, "Search history", SEARCH_HISTORY.map { "Last $it searches" }, SEARCH_HISTORY, store.searchHistoryLimit) {
                 store.searchHistoryLimit = it; refresh()
@@ -206,6 +197,7 @@ class SettingsActivity : BaseActivity() {
                 refresh()
             }
         }
+        r += Row.Sub("TV guide")
         r += Row.Item("TV guide refresh", "Every ${store.epgMinutes} min",
             "How long a channel's guide is remembered. Longer = faster browsing, fewer server requests") {
             Dialogs.choose(this, "TV guide refresh", EPG_MINUTES.map { "Every $it minutes" + if (it == 10) " (default)" else "" },
@@ -215,44 +207,63 @@ class SettingsActivity : BaseActivity() {
                 refresh()
             }
         }
-        r += Row.Item("Live TV stream format", if (store.liveFormat == "m3u8") "HLS (.m3u8)" else "MPEG-TS (.ts)",
-            "Try HLS if channels stutter or won't start") {
-            Dialogs.choose(this, "Live TV stream format", listOf("MPEG-TS (.ts) – recommended", "HLS (.m3u8)"),
-                listOf("ts", "m3u8"), store.liveFormat) { store.liveFormat = it; refresh() }
-        }
+
+        r += Row.Header("Player", "player", R.drawable.ic_play,
+            "Decoder ${label(DECODERS, store.decoderMode)} • ${label(BUFFERS, store.bufferSize)} buffer • screen, subtitles")
+        r += Row.Sub("Playback")
         r += Row.Item("Default player", if (store.externalByDefault) "External" else "Built-in") {
             Dialogs.choose(this, "Default player", listOf("Built-in player", "External player"),
                 listOf(false, true), store.externalByDefault) { store.externalByDefault = it; refresh() }
         }
-
-        r += Row.Header("Player", "player", R.drawable.ic_play,
-            "Decoder ${label(DECODERS, store.decoderMode)} • ${label(BUFFERS, store.bufferSize)} buffer • gestures, Back button")
         r += Row.Item("Decoder", label(DECODERS, store.decoderMode), DECODER_HINTS[store.decoderMode]) {
             Dialogs.choose(this, "Decoder", DECODERS.map { "${it.second} – ${DECODER_HINTS[it.first]}" },
                 DECODERS.map { it.first }, store.decoderMode) { store.decoderMode = it; refresh() }
-        }
-        r += Row.Item("Video screen size", label(RESIZES, store.videoResize), "Can also be changed while watching (Settings button in the player)") {
-            Dialogs.choose(this, "Video screen size", RESIZES.map { it.second }, RESIZES.map { it.first }, store.videoResize) {
-                store.videoResize = it; refresh()
-            }
-        }
-        if (!tvMode) r += Row.Item("Touch gestures", onOff(store.playerGestures),
-            "Left side: brightness • Right side: volume • Sideways: seek • Pinch: zoom • Double-tap: ±10 s") {
-            store.playerGestures = !store.playerGestures; refresh()
-        }
-        r += Row.Item("Back button in player", if (store.pipOnBack) "Picture-in-picture" else "Close player",
-            "Picture-in-picture keeps the video playing in a small window while you browse") {
-            Dialogs.choose(this, "Back button in player", listOf("Shrink to picture-in-picture", "Close the player"),
-                listOf(true, false), store.pipOnBack) { store.pipOnBack = it; refresh() }
         }
         r += Row.Item("Buffer size", label(BUFFERS, store.bufferSize), "Bigger buffer = fewer pauses, slower start") {
             Dialogs.choose(this, "Buffer size", BUFFERS.map { it.second }, BUFFERS.map { it.first }, store.bufferSize) {
                 store.bufferSize = it; refresh()
             }
         }
+        r += Row.Item("Live TV stream format", if (store.liveFormat == "m3u8") "HLS (.m3u8)" else "MPEG-TS (.ts)",
+            "Try HLS if channels stutter or won't start") {
+            Dialogs.choose(this, "Live TV stream format", listOf("MPEG-TS (.ts) – recommended", "HLS (.m3u8)"),
+                listOf("ts", "m3u8"), store.liveFormat) { store.liveFormat = it; refresh() }
+        }
+        r += Row.Sub("Screen")
+        r += Row.Item("Video screen size", label(RESIZES, store.videoResize), "Can also be changed while watching (Settings button in the player)") {
+            Dialogs.choose(this, "Video screen size", RESIZES.map { it.second }, RESIZES.map { it.first }, store.videoResize) {
+                store.videoResize = it; refresh()
+            }
+        }
+        val pipHere = Build.VERSION.SDK_INT >= 26 &&
+            packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)
+        r += Row.Item("Picture-in-picture", if (pipHere) onOff(store.pipEnabled) else "Not available",
+            if (pipHere) "Keep watching in a small window when you press Home or Back in the player"
+            else "This device's Android doesn't include picture-in-picture") {
+            store.pipEnabled = !store.pipEnabled; refresh()
+        }
+        r += Row.Item("Back button in player", if (store.pipOnBack) "Picture-in-picture" else "Close player",
+            "Picture-in-picture keeps the video playing in a small window while you browse") {
+            Dialogs.choose(this, "Back button in player", listOf("Shrink to picture-in-picture", "Close the player"),
+                listOf(true, false), store.pipOnBack) { store.pipOnBack = it; refresh() }
+        }
+        if (!tvMode) r += Row.Item("Touch gestures", onOff(store.playerGestures),
+            "Left side: brightness • Right side: volume • Sideways: seek • Pinch: zoom • Double-tap: ±10 s") {
+            store.playerGestures = !store.playerGestures; refresh()
+        }
+        r += Row.Sub("Subtitles")
+        r += Row.Item("Subtitles", label(SUB_MODES, store.subtitleMode),
+            "Auto shows subtitles only when the stream marks them as default") {
+            Dialogs.choose(this, "Subtitles", SUB_MODES.map { it.second }, SUB_MODES.map { it.first }, store.subtitleMode) {
+                store.subtitleMode = it; refresh()
+            }
+        }
+        r += Row.Item("Subtitle language", label(LANGUAGES, store.subtitleLanguage)
+            .ifEmpty { store.subtitleLanguage.uppercase() }, "Used when Subtitles is On") { chooseLanguage() }
 
         r += Row.Header("Online subtitles", "subtitles", R.drawable.ic_subtitles,
             "Podnapisi, Addic7ed" + if (store.subsApiKey.isBlank()) " • OpenSubtitles optional" else " + OpenSubtitles")
+        r += Row.Sub("Search")
         r += Row.Item("Search languages", OpenSubtitles.languages(store).uppercase(),
             "Codes separated by commas, e.g. en,ms,zh") {
             Dialogs.input(this, "Languages (e.g. en,ms,zh)", store.subsLanguages.ifBlank { OpenSubtitles.languages(store) }) {
@@ -271,12 +282,31 @@ class SettingsActivity : BaseActivity() {
                 .setPositiveButton("OK", null)
                 .show()
         }
+        r += Row.Item("Test online subtitles", "") { testSubtitles() }
+        r += Row.Sub("OpenSubtitles (optional)")
         r += Row.Item("OpenSubtitles (optional)", if (store.subsApiKey.isBlank()) "Not set up" else "On",
             "Adds the biggest subtitle library. Needs your own free API key – see \"How to set up OpenSubtitles\"") {
             AlertDialog.Builder(this).setTitle("OpenSubtitles (optional)")
                 .setMessage("Without it, subtitles still come from Podnapisi and Addic7ed. To add OpenSubtitles, fill in the API key " +
                     "below (and, if you like, your OpenSubtitles username and password for more downloads per day).")
                 .setPositiveButton("OK", null).show()
+        }
+        r += Row.Item("OpenSubtitles API key", if (store.subsApiKey.isBlank()) "Not set" else "••••" + store.subsApiKey.takeLast(4),
+            "Free from opensubtitles.com → API consumers") {
+            Dialogs.input(this, "OpenSubtitles API key", store.subsApiKey) {
+                store.subsApiKey = it.trim(); OpenSubtitles.forgetLogin(); refresh()
+            }
+        }
+        r += Row.Item("OpenSubtitles username", store.subsUsername.ifBlank { "Not signed in (optional)" },
+            "Signing in gives more downloads per day; VIP accounts get the most") {
+            Dialogs.input(this, "OpenSubtitles username", store.subsUsername) {
+                store.subsUsername = it.trim(); OpenSubtitles.forgetLogin(); refresh()
+            }
+        }
+        r += Row.Item("OpenSubtitles password", if (store.subsPassword.isEmpty()) "Not set" else "••••••") {
+            Dialogs.input(this, "OpenSubtitles password", password = true) {
+                store.subsPassword = it; OpenSubtitles.forgetLogin(); refresh()
+            }
         }
         r += Row.Item("OpenSubtitles server", when (store.subsServer) {
             "vip" -> "VIP API server"; "custom" -> "Custom"; else -> "Default server"
@@ -297,24 +327,6 @@ class SettingsActivity : BaseActivity() {
                 }
             }
         }
-        r += Row.Item("OpenSubtitles API key", if (store.subsApiKey.isBlank()) "Not set" else "••••" + store.subsApiKey.takeLast(4),
-            "Free from opensubtitles.com → API consumers") {
-            Dialogs.input(this, "OpenSubtitles API key", store.subsApiKey) {
-                store.subsApiKey = it.trim(); OpenSubtitles.forgetLogin(); refresh()
-            }
-        }
-        r += Row.Item("OpenSubtitles username", store.subsUsername.ifBlank { "Not signed in (optional)" },
-            "Signing in gives more downloads per day; VIP accounts get the most") {
-            Dialogs.input(this, "OpenSubtitles username", store.subsUsername) {
-                store.subsUsername = it.trim(); OpenSubtitles.forgetLogin(); refresh()
-            }
-        }
-        r += Row.Item("OpenSubtitles password", if (store.subsPassword.isEmpty()) "Not set" else "••••••") {
-            Dialogs.input(this, "OpenSubtitles password", password = true) {
-                store.subsPassword = it; OpenSubtitles.forgetLogin(); refresh()
-            }
-        }
-        r += Row.Item("Test online subtitles", "") { testSubtitles() }
         r += Row.Item("How to set up OpenSubtitles", "") {
             AlertDialog.Builder(this)
                 .setTitle("OpenSubtitles API key")
@@ -330,13 +342,11 @@ class SettingsActivity : BaseActivity() {
 
         r += Row.Header("Recordings", "recordings", R.drawable.ic_record,
             "${store.recPadBeforeMin} min early, ${store.recPadAfterMin} min late")
+        r += Row.Sub("Recordings")
         r += Row.Item("Scheduled & recorded", "${com.farloh.tv.data.Recordings.schedules(this).size} set up",
             "Set up new recordings, see what's recorded (also in Downloads → Recordings)") {
             startActivity(android.content.Intent(this, DownloadsActivity::class.java)
                 .putExtra(DownloadsActivity.EXTRA_TAB, DownloadsActivity.TAB_RECORDINGS))
-        }
-        r += Row.Item("Recording setup help", "", "What the box needs so recordings work with the TV off, with Open Settings") {
-            RecordUi.setupHelp(this, withTickBox = false) { refresh() }
         }
         r += Row.Item("Start early", "${store.recPadBeforeMin} min", "In case the programme starts before the guide says") {
             val v = listOf(0, 1, 2, 5, 10)
@@ -362,6 +372,10 @@ class SettingsActivity : BaseActivity() {
                 store.recFolder = if (path == locations.firstOrNull()?.second?.path) "" else path
                 refresh()
             }
+        }
+        r += Row.Sub("Setup")
+        r += Row.Item("Recording setup help", "", "What the box needs so recordings work with the TV off, with Open Settings") {
+            RecordUi.setupHelp(this, withTickBox = false) { refresh() }
         }
         if (android.os.Build.VERSION.SDK_INT >= 23) {
             val bg = RecordUi.runsInBackground(this)
@@ -394,8 +408,9 @@ class SettingsActivity : BaseActivity() {
             unlockParental { pinOptions() }
         }
 
-        r += Row.Header("Screen", "screen", R.drawable.ic_screen,
-            "App size ${store.uiZoom}% • ${if (store.orientation == "auto") "auto-rotate" else "landscape"}")
+        r += Row.Header("Screen & device", "screen", R.drawable.ic_screen,
+            "App size ${store.uiZoom}% • " + when (store.deviceMode) { "tv" -> "TV mode"; "mobile" -> "Mobile mode"; else -> "Auto (${if (detectedTv) "TV" else "Mobile"})" })
+        r += Row.Sub("Screen")
         r += Row.Item("App size (zoom)", "${store.uiZoom}%",
             "Smaller = more fits on screen. Ignores the phone's own display-size setting") {
             Dialogs.choose(this, "App size", ZOOMS.map { if (it == 100) "100% (standard)" else "$it%" }, ZOOMS, store.uiZoom) {
@@ -413,9 +428,7 @@ class SettingsActivity : BaseActivity() {
                 if (it != store.orientation) { store.orientation = it; restartApp() }
             }
         }
-
-        r += Row.Header("Device", "device", R.drawable.ic_series,
-            "Mode: " + when (store.deviceMode) { "tv" -> "TV"; "mobile" -> "Mobile"; else -> "Auto (${if (detectedTv) "TV" else "Mobile"})" })
+        r += Row.Sub("Device")
         r += Row.Item("Device mode", when (store.deviceMode) {
             "tv" -> "TV"; "mobile" -> "Mobile"; else -> "Auto (${if (detectedTv) "TV" else "Mobile"})"
         }, "Use TV for remote-control layout, Mobile for touch layout") {
@@ -430,22 +443,23 @@ class SettingsActivity : BaseActivity() {
                 }
             }
         }
-
         r += Row.Item("Notifications", if (com.farloh.tv.data.Notify.allowed(this)) "Allowed" else "Off",
             "Tells you about new versions and messages, even when the app is closed") { permissions.askNotifications() }
         r += Row.Item("File access", when {
                 StorageAccess.granted(this) -> "Allowed"
                 !StorageAccess.canAsk(this) -> "Not offered on this device"
                 else -> "Not allowed"
-            }, "Lets the built-in browser find backup and VPN files on this device and USB drives") {
+            }, "Lets the built-in browser find backup files on this device and USB drives") {
             if (StorageAccess.granted(this)) toast("File access is already allowed") else permissions.askFiles()
         }
-
         val sz = sizes
         fun mb(b: Long?) = if (b == null) "…" else android.text.format.Formatter.formatShortFileSize(this, b)
+
         r += Row.Header("Storage", "storage", R.drawable.ic_download,
             if (sz == null) "Space used by playlists, pictures and downloads" else "${mb(sz.playlistAll + sz.pictures + sz.subtitles + sz.updates + sz.temp)} used • ${mb(sz.free)} free")
+        r += Row.Sub("Space")
         r += Row.Item("Free space on this device", mb(sz?.free)) { }
+        r += Row.Sub("Saved lists")
         r += Row.Item("Saved playlists – this playlist", mb(sz?.playlistActive),
             "Channel, movie and show lists. Only re-downloaded when you press Refresh") {
             Dialogs.confirm(this, "Clear this playlist's saved lists?", "They'll download again next time you open each section.", "Clear") {
@@ -457,6 +471,7 @@ class SettingsActivity : BaseActivity() {
                 lifecycleScope.launch { com.farloh.tv.data.StorageInfo.clearAllPlaylists(this@SettingsActivity); remeasure("All saved lists cleared") }
             }
         }
+        r += Row.Sub("Cache")
         r += Row.Item("Pictures (logos & posters)", mb(sz?.pictures) + " of ${store.imageCacheMb} MB",
             "Kept so they load instantly. Oldest are removed when full. Tap to clear") {
             lifecycleScope.launch { com.farloh.tv.data.StorageInfo.clearPictures(this@SettingsActivity); remeasure("Pictures cleared") }
@@ -489,9 +504,6 @@ class SettingsActivity : BaseActivity() {
             lifecycleScope.launch { com.farloh.tv.data.StorageInfo.clearGuide(this@SettingsActivity); remeasure("EPG search data cleared") }
         }
         r += Row.Item("Temporary files", mb(sz?.temp), "Leftovers from interrupted downloads. Removed automatically") { }
-        r += Row.Item("Offline downloads", mb(sz?.downloads), "Manage them on the Downloads screen") {
-            startActivity(Intent(this, DownloadsActivity::class.java))
-        }
         r += Row.Item("Clear all cache", sz?.let { mb(it.clearable) } ?: "",
             "Pictures, TV guide, EPG search data, subtitles, update and temporary files. Keeps playlists, favourites, history and downloads") {
             Dialogs.confirm(this, "Clear all cache?", "Pictures and the TV guide download again when needed. " +
@@ -501,6 +513,10 @@ class SettingsActivity : BaseActivity() {
                     remeasure("Cache cleared")
                 }
             }
+        }
+        r += Row.Sub("Downloads")
+        r += Row.Item("Offline downloads", mb(sz?.downloads), "Manage them on the Downloads screen") {
+            startActivity(Intent(this, DownloadsActivity::class.java))
         }
 
         r += Row.Header("Backup & restore", "backup", R.drawable.ic_backup,
@@ -512,9 +528,9 @@ class SettingsActivity : BaseActivity() {
         r += Row.Item("Restore from backup", "", "Replaces everything in the app with the backup") {
             backup.startRestore()
         }
-
         val all = store.playlists()
         val activeId = store.activePlaylist?.id
+
         r += Row.Header("Playlists", "playlist", R.drawable.ic_playlist,
             "${all.size} playlist(s) • using ${store.activePlaylist?.name.orEmpty()}")
         for (p in all) {
