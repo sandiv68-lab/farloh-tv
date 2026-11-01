@@ -318,9 +318,8 @@ class BrowseActivity : BaseActivity() {
                     showGuide(item as LiveChannel)
                 } else playChannel(pos, external = null)
             }
-            // TV: hold OK = Favourite (the guide already shows beside the list). Phones: nothing on a long press
-            // (one tap shows the guide, a second tap plays).
-            itemAdapter.onLongClick = if (tvMode) { item, _ -> quickFavorite(this, section, item); render(keepScroll = true) } else null
+            // Hold OK / long-press = Favourite, as for movies and TV shows (Menu key = more options).
+            itemAdapter.onLongClick = { item, _ -> quickFavorite(this, section, item); render(keepScroll = true) }
             itemAdapter.onFocus = { item, _ ->
                 if (wide) {
                     epgJob?.cancel()

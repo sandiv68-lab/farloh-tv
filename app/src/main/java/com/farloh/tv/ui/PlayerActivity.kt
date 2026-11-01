@@ -928,8 +928,10 @@ class PlayerActivity : BaseActivity() {
             val acc = store.accountFor(p.playlistId) ?: account
             if (acc != null && store.maxConnections(p.playlistId) == 1) {
                 gateJob = lifecycleScope.launch {
-                    // A moment for the provider to notice the old connection closed; usually that's all it takes.
-                    kotlinx.coroutines.delay(400)
+                    // Changing channel quickly: only the channel you stop on is opened (each press cancels this),
+                    // and the provider gets a moment to notice the old connection has closed.
+                    showBuffering(true)
+                    kotlinx.coroutines.delay(700)
                     val freed = StreamGate.waitUntilFree(store, acc, p.playlistId, maxMs = 20_000) { active, max, sec ->
                         // Only said when it takes a while (no flash on every channel change).
                         if (sec >= 2) showStatus("Freeing the connection…\nYour provider still shows $active of $max in use ($sec s)")
@@ -944,6 +946,25 @@ class PlayerActivity : BaseActivity() {
         }
         startStream(exo, p, start)
         showStarted(p, start)
+    }
+
+    /** The server's answer when it refused a stream (e.g. 403 / 509 = connection limit), if that's what happened. */
+    private fun httpStatus(e: Throwable?): Int? {
+        var c = e
+        while (c != null) {
+            if (c is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) return c.responseCode
+            c = c.cause
+        }
+        return null
+    }
+
+    private fun refusedByProvider(e: PlaybackException) = httpStatus(e)?.let { it == 401 || it == 403 || it in 405..429 || it == 458 || it == 509 || it == 503 } == true
+
+    private fun errorReason(e: PlaybackException) = httpStatus(e)?.let { "server answered $it" } ?: e.errorCodeName
+
+    /** The player's loading circle, also while waiting between quiet retries (when the player itself is idle). */
+    private fun showBuffering(on: Boolean) {
+        playerView.findViewById<View>(androidx.media3.ui.R.id.exo_buffering)?.visibility = if (on) View.VISIBLE else View.GONE
     }
 
     private fun startStream(exo: ExoPlayer, p: Playable, start: Long) {
@@ -976,7 +997,9 @@ class PlayerActivity : BaseActivity() {
 
     private fun scheduleReconnect(reason: String) {
         if (retries >= 5) {
-            showStatus("This channel isn't responding ($reason).\n\nTry another channel, switch the Live TV stream format in Settings, or use Open in external.")
+            showStatus("This channel isn't responding ($reason).\n\n" +
+                (if (store.maxConnections(current.playlistId) == 1) "Your subscription allows 1 connection: make sure nothing else is playing on it. " else "") +
+                "Try another channel, switch the Live TV stream format in Settings, or use Open in external.")
             return
         }
         retries++
@@ -988,7 +1011,7 @@ class PlayerActivity : BaseActivity() {
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) {
             when (state) {
-                Player.STATE_READY -> { retries = 0; hideStatus() }
+                Player.STATE_READY -> { retries = 0; hideStatus(); showBuffering(false) }
                 Player.STATE_ENDED -> if (isLive) scheduleReconnect("stream ended") else onVideoEnded()
                 else -> Unit
             }
@@ -1012,14 +1035,16 @@ class PlayerActivity : BaseActivity() {
             val exo = player ?: return
             // Just after switching on a 1-connection account the provider may not have freed the old connection
             // yet: try again quietly for a few seconds before saying anything.
-            if (store.disconnectOn(current.playlistId) && System.currentTimeMillis() - switchedAt < 10_000 && quietRetries < 6) {
+            if (store.disconnectOn(current.playlistId) && System.currentTimeMillis() - switchedAt < 30_000 && quietRetries < 12) {
                 quietRetries++
                 val p = current
                 val pos = if (isLive) 0L else exo.currentPosition.takeIf { it > 0 } ?: store.resumePosition(p.resumeKey, p.playlistId)
                 exo.stop()
                 StreamGate.close(exo)
                 handler.removeCallbacks(reconnectRunnable)
-                handler.postDelayed({ if (player === exo && current === p) startStream(exo, p, pos) }, 1_200)
+                showBuffering(true) // just the loading circle while it tries again
+                val wait = (1_000L + quietRetries * 500L).coerceAtMost(3_000L)
+                handler.postDelayed({ if (player === exo && current === p) startStream(exo, p, pos) }, wait)
                 return
             }
             if (isLive) {
@@ -1027,10 +1052,12 @@ class PlayerActivity : BaseActivity() {
                     exo.seekToDefaultPosition()
                     exo.prepare()
                 } else {
-                    scheduleReconnect(error.errorCodeName)
+                    scheduleReconnect(errorReason(error))
                 }
             } else {
-                showStatus("Can't play this video (${error.errorCodeName}).\n\nTry Open in external.")
+                showStatus("Can't play this video (${errorReason(error)}).\n\n" +
+                    (if (refusedByProvider(error)) "Your provider refused the stream – if your subscription allows only 1 connection, " +
+                        "another device or app may still be using it. " else "") + "Try again, or use Open in external.")
                 playerView.showController()
             }
         }
