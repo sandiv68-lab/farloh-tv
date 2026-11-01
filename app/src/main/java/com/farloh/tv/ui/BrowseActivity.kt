@@ -153,9 +153,11 @@ class BrowseActivity : BaseActivity() {
         setupItems()
 
         epgPanel.visibility = if (section == Section.LIVE && wide) View.VISIBLE else View.GONE
+        // Phones: a slightly narrower guide, so channel names get more room.
+        if (!tvMode) epgPanel.layoutParams = epgPanel.layoutParams.apply { width = dp(195) }
         epgRv.layoutManager = LinearLayoutManager(this)
         epgRv.adapter = epgAdapter
-        epgChannel.text = "Select a channel"
+        epgChannel.text = if (tvMode) "Select a channel" else "Tap a channel to see its guide, tap it again to play"
 
         load()
     }
@@ -304,7 +306,18 @@ class BrowseActivity : BaseActivity() {
         if (section == Section.LIVE) {
             itemsRv.layoutManager = LinearLayoutManager(this)
             itemAdapter = SimpleAdapter<CatalogItem>(R.layout.row_channel, 1.02f) { v, item, _ -> bindChannel(v, item as LiveChannel) }
-            itemAdapter.onClick = { _, pos -> playChannel(pos, external = null) }
+            itemAdapter.onClick = { item, pos ->
+                // Phones (with the guide beside the list): the first tap shows the channel's guide,
+                // a tap on the same channel while its guide shows plays it.
+                if (!tvMode && wide && touchedChannel != keyOf(item)) {
+                    val old = touchedChannel
+                    touchedChannel = keyOf(item)
+                    itemAdapter.items.indexOfFirst { keyOf(it) == old }.takeIf { it >= 0 }?.let { itemAdapter.notifyItemChanged(it) }
+                    itemAdapter.notifyItemChanged(pos)
+                    epgJob?.cancel()
+                    showGuide(item as LiveChannel)
+                } else playChannel(pos, external = null)
+            }
             // TV: hold OK = Favourite (the guide already shows beside the list). Phones: a short menu,
             // because a touch screen has no "selected" channel to show the guide for.
             itemAdapter.onLongClick = { item, pos ->
@@ -491,9 +504,22 @@ class BrowseActivity : BaseActivity() {
 
     // ---------------- Live TV ----------------
 
+    /** Phones: the channel tapped once (its guide shows; tap again to play). */
+    private var touchedChannel: String? = null
+
+    private fun keyOf(item: CatalogItem) = "${item.playlistId}|${item.id}"
+
     private fun bindChannel(v: View, ch: LiveChannel) {
         v.findViewById<TextView>(R.id.num).text = ch.num
-        v.findViewById<TextView>(R.id.name).text = ch.name
+        val chosen = !tvMode && touchedChannel == keyOf(ch)
+        v.findViewById<TextView>(R.id.name).apply {
+            text = ch.name
+            // The chosen channel's name scrolls when it's too long to fit.
+            ellipsize = if (chosen) android.text.TextUtils.TruncateAt.MARQUEE else android.text.TextUtils.TruncateAt.END
+            marqueeRepeatLimit = -1
+            isSelected = chosen
+        }
+        if (!tvMode) v.isSelected = chosen
         v.findViewById<ImageView>(R.id.logo).loadImage(ch.image)
         v.findViewById<View>(R.id.fav).visibility = if (favKey(ch) in favs) View.VISIBLE else View.GONE
         v.findViewById<TextView>(R.id.playlistTag).apply {
