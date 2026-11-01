@@ -507,6 +507,8 @@ class PlayerActivity : BaseActivity() {
         // The button-name line is for TV remotes; on a touch screen it only takes space.
         actionRows.forEach { it.findViewById<View>(R.id.actLabel)?.visibility = View.GONE }
 
+        // The channel / episode list closer to the left edge (only its own small margin).
+        channelPanel.setPadding((6 * d).toInt(), channelPanel.paddingTop, channelPanel.paddingRight, channelPanel.paddingBottom)
         val bottomPanels = listOfNotNull(vodPanel, infoBar)
         val base = (bottomPanels + channelPanel).associateWith {
             intArrayOf(it.paddingLeft, it.paddingTop, it.paddingRight, it.paddingBottom)
@@ -2014,7 +2016,26 @@ class PlayerActivity : BaseActivity() {
         code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT || code == KeyEvent.KEYCODE_DPAD_CENTER ||
         code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER
 
+    /**
+     * Back closes one thing at a time. When the key press closed something (the channel list, the overlay…), its
+     * release is swallowed too – otherwise Android treats the release as Back as well and leaves the player.
+     */
+    private var swallowBackUp = false
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode != KeyEvent.KEYCODE_BACK) return handleKey(event)
+        if (event.action == KeyEvent.ACTION_UP && swallowBackUp) { swallowBackUp = false; return true }
+        val panelOpen = channelPanel.visibility == View.VISIBLE
+        val overlayOpen = infoBar.visibility == View.VISIBLE || playerView.isControllerFullyVisible
+        val handled = handleKey(event)
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            swallowBackUp = handled && (panelOpen && channelPanel.visibility != View.VISIBLE ||
+                overlayOpen && infoBar.visibility != View.VISIBLE && !playerView.isControllerFullyVisible)
+        }
+        return handled
+    }
+
+    private fun handleKey(event: KeyEvent): Boolean {
         if (Build.VERSION.SDK_INT >= 24 && isInPictureInPictureMode) return super.dispatchKeyEvent(event)
         if (!isLive && channelPanel.visibility == View.VISIBLE) {
             if (event.action == KeyEvent.ACTION_DOWN &&
