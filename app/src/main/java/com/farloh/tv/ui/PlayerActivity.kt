@@ -377,6 +377,9 @@ class PlayerActivity : BaseActivity() {
                 when {
                     locked -> showUnlock()
                     channelPanel.visibility == View.VISIBLE -> hidePanel()
+                    // Same as the TV remote: Back first closes the overlay / controls, then leaves.
+                    infoBar.visibility == View.VISIBLE -> hideInfo()
+                    !isLive && playerView.isControllerFullyVisible -> playerView.hideController()
                     store.pipOnBack && store.pipEnabled && pipSupported() && player?.isPlaying == true && enterPip() -> Unit
                     else -> finish()
                 }
