@@ -6,4 +6,4 @@
     android:checkMarkTint="@color/accent" android:ellipsize="end" android:fontFamily="sans-serif"
     android:gravity="center_vertical" android:maxLines="2" android:minHeight="34dp"
     android:paddingStart="20dp" android:paddingTop="4dp" android:paddingEnd="16dp" android:paddingBottom="4dp"
-    android:textColor="@color/text" android:textSize="14sp" />
+    android:textColor="@color/text" android:textSize="?attr/farlohDialogItemSize" />

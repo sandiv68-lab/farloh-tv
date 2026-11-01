@@ -318,12 +318,9 @@ class BrowseActivity : BaseActivity() {
                     showGuide(item as LiveChannel)
                 } else playChannel(pos, external = null)
             }
-            // TV: hold OK = Favourite (the guide already shows beside the list). Phones: a short menu,
-            // because a touch screen has no "selected" channel to show the guide for.
-            itemAdapter.onLongClick = { item, pos ->
-                if (tvMode) { quickFavorite(this, section, item); render(keepScroll = true) }
-                else channelOptions(item as LiveChannel, pos)
-            }
+            // TV: hold OK = Favourite (the guide already shows beside the list). Phones: nothing on a long press
+            // (one tap shows the guide, a second tap plays).
+            itemAdapter.onLongClick = if (tvMode) { item, _ -> quickFavorite(this, section, item); render(keepScroll = true) } else null
             itemAdapter.onFocus = { item, _ ->
                 if (wide) {
                     epgJob?.cancel()

@@ -904,6 +904,9 @@ class PlayerActivity : BaseActivity() {
 
     /** "Disconnect stream on exit": waiting for the server to free the old connection before the next stream. */
     private var gateJob: Job? = null
+    /** When the last channel / video started, and quiet retries since (the provider may still be freeing the old one). */
+    private var switchedAt = 0L
+    private var quietRetries = 0
 
     private fun playCurrent(resume: Boolean) {
         val exo = player ?: return
@@ -915,6 +918,8 @@ class PlayerActivity : BaseActivity() {
         hideStatus()
         val start = if (!isLive && resume) store.resumePosition(p.resumeKey, p.playlistId) else 0L
         gateJob?.cancel()
+        switchedAt = System.currentTimeMillis()
+        quietRetries = 0
         if (store.disconnectOn(p.playlistId)) {
             // Stop the old stream completely (no more buffering or retries) and close its connections first.
             exo.stop()
@@ -923,9 +928,11 @@ class PlayerActivity : BaseActivity() {
             val acc = store.accountFor(p.playlistId) ?: account
             if (acc != null && store.maxConnections(p.playlistId) == 1) {
                 gateJob = lifecycleScope.launch {
-                    showStatus("Freeing the connection…")
+                    // A moment for the provider to notice the old connection closed; usually that's all it takes.
+                    kotlinx.coroutines.delay(400)
                     val freed = StreamGate.waitUntilFree(store, acc, p.playlistId, maxMs = 20_000) { active, max, sec ->
-                        showStatus("Freeing the connection…\nYour provider still shows $active of $max in use ($sec s)")
+                        // Only said when it takes a while (no flash on every channel change).
+                        if (sec >= 2) showStatus("Freeing the connection…\nYour provider still shows $active of $max in use ($sec s)")
                     }
                     hideStatus()
                     if (!freed) toast("Your provider is still holding the old connection – starting anyway", long = true)
@@ -1003,6 +1010,18 @@ class PlayerActivity : BaseActivity() {
 
         override fun onPlayerError(error: PlaybackException) {
             val exo = player ?: return
+            // Just after switching on a 1-connection account the provider may not have freed the old connection
+            // yet: try again quietly for a few seconds before saying anything.
+            if (store.disconnectOn(current.playlistId) && System.currentTimeMillis() - switchedAt < 10_000 && quietRetries < 6) {
+                quietRetries++
+                val p = current
+                val pos = if (isLive) 0L else exo.currentPosition.takeIf { it > 0 } ?: store.resumePosition(p.resumeKey, p.playlistId)
+                exo.stop()
+                StreamGate.close(exo)
+                handler.removeCallbacks(reconnectRunnable)
+                handler.postDelayed({ if (player === exo && current === p) startStream(exo, p, pos) }, 1_200)
+                return
+            }
             if (isLive) {
                 if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
                     exo.seekToDefaultPosition()

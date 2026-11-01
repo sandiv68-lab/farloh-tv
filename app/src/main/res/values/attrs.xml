@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Text size of pop-up list lines (a little bigger in the player). -->
+    <attr name="farlohDialogItemSize" format="dimension" />
+</resources>
