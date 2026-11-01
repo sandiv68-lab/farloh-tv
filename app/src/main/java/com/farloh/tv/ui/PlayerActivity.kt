@@ -58,6 +58,7 @@ import com.farloh.tv.player.AudioDelayProcessor
 import com.farloh.tv.player.External
 import com.farloh.tv.player.PlayerFactory
 import com.farloh.tv.player.SubtitleDelay
+import com.farloh.tv.player.StreamGate
 import com.farloh.tv.player.Kind
 import com.farloh.tv.player.PlayQueue
 import com.farloh.tv.player.Playable
@@ -453,8 +454,12 @@ class PlayerActivity : BaseActivity() {
         PlayQueue.index = index
         resumeOnStart = true
         handler.removeCallbacksAndMessages(null)
+        gateJob?.cancel()
+        // Stop the stream first (no background buffering), then free every connection it used.
+        player?.stop()
         player?.release()
         player = null
+        StreamGate.closeConnections()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -759,7 +764,7 @@ class PlayerActivity : BaseActivity() {
     private fun mediaItem(p: Playable): MediaItem {
         // A downloaded subtitle that's used is kept (unused ones are cleaned up after 30 days).
         subFile(p).takeIf { it.exists() }?.setLastModified(System.currentTimeMillis())
-        return PlayerFactory.mediaItem(p, subFile(p))
+        return PlayerFactory.mediaItem(p, subFile(p), StreamGate.streamUrl(store, p))
     }
 
     // ---------------- Subtitles ----------------
@@ -891,10 +896,14 @@ class PlayerActivity : BaseActivity() {
         val exo = player ?: return
         val pos = exo.currentPosition
         val playing = exo.playWhenReady
+        if (store.disconnectOn(current.playlistId)) { exo.stop(); StreamGate.closeConnections() }
         exo.setMediaItem(mediaItem(current), pos)
         exo.prepare()
         exo.playWhenReady = playing
     }
+
+    /** "Disconnect stream on exit": waiting for the server to free the old connection before the next stream. */
+    private var gateJob: Job? = null
 
     private fun playCurrent(resume: Boolean) {
         val exo = player ?: return
@@ -905,9 +914,36 @@ class PlayerActivity : BaseActivity() {
         handler.removeCallbacks(reconnectRunnable)
         hideStatus()
         val start = if (!isLive && resume) store.resumePosition(p.resumeKey, p.playlistId) else 0L
+        gateJob?.cancel()
+        if (store.disconnectOn(p.playlistId)) {
+            // Stop the old stream completely (no more buffering or retries) and close its connections first.
+            exo.stop()
+            exo.clearMediaItems()
+            StreamGate.closeConnections()
+            val acc = store.accountFor(p.playlistId) ?: account
+            if (acc != null && store.maxConnections(p.playlistId) == 1) {
+                gateJob = lifecycleScope.launch {
+                    showStatus("Freeing the connection…")
+                    StreamGate.waitUntilFree(store, acc, p.playlistId)
+                    hideStatus()
+                    if (player === exo && current === p) startStream(exo, p, start)
+                }
+                showStarted(p, start)
+                return
+            }
+        }
+        startStream(exo, p, start)
+        showStarted(p, start)
+    }
+
+    private fun startStream(exo: ExoPlayer, p: Playable, start: Long) {
         exo.setMediaItem(mediaItem(p), start)
         exo.prepare()
         exo.play()
+    }
+
+    /** The overlay / title for what's starting. */
+    private fun showStarted(p: Playable, start: Long) {
         if (isLive) {
             store.addToHistory(p.id, p.playlistId)
             nowNext = emptyList()
@@ -922,6 +958,7 @@ class PlayerActivity : BaseActivity() {
 
     private fun reconnect() {
         val exo = player ?: return
+        if (store.disconnectOn(current.playlistId)) { exo.stop(); StreamGate.closeConnections() }
         exo.setMediaItem(mediaItem(current))
         exo.prepare()
         exo.play()

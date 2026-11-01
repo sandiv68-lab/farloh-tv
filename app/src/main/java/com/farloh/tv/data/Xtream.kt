@@ -41,6 +41,16 @@ object Xtream {
         LoginResult(true, null, safe)
     }
 
+    /** Streams in use / allowed right now for this account, as the server sees it (null = couldn't ask). */
+    suspend fun connections(account: Account): Pair<Int, Int>? = withContext(Dispatchers.IO) {
+        runCatching {
+            val info = JSONObject(Net.getString(account.api())).optJSONObject("user_info") ?: return@runCatching null
+            val active = info.optString("active_cons").trim().toIntOrNull() ?: return@runCatching null
+            val max = info.optString("max_connections").trim().toIntOrNull() ?: return@runCatching null
+            active to max
+        }.getOrNull()
+    }
+
     // ---------------- EPG ----------------
 
     private val epgCache = LruCache<String, Pair<Long, List<Programme>>>(150)

@@ -41,6 +41,10 @@ object PlayerFactory {
         val store = Store.get(ctx)
         val http = OkHttpDataSource.Factory(Net.client.newBuilder().readTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build())
             .setUserAgent(Net.USER_AGENT)
+        // "Disconnect stream on exit": don't keep connections open for re-use (servers count them).
+        val disconnect = store.disconnectMode == "on" ||
+            (store.disconnectMode == "auto" && store.viewPlaylists().any { store.maxConnections(it.id) == 1 })
+        if (disconnect) http.setDefaultRequestProperties(mapOf("Connection" to "close"))
         val extractors = DefaultExtractorsFactory().setTsExtractorFlags(
             DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
         )
@@ -113,9 +117,9 @@ object PlayerFactory {
     }
 
     /** The stream (+ a subtitle downloaded with "Search online", if there is one). */
-    fun mediaItem(p: Playable, subtitle: File? = null): MediaItem {
-        val b = MediaItem.Builder().setUri(p.url).setMediaId(p.id)
-        if (p.url.contains(".m3u8", ignoreCase = true)) b.setMimeType(MimeTypes.APPLICATION_M3U8)
+    fun mediaItem(p: Playable, subtitle: File? = null, url: String = p.url): MediaItem {
+        val b = MediaItem.Builder().setUri(url).setMediaId(p.id)
+        if (url.contains(".m3u8", ignoreCase = true)) b.setMimeType(MimeTypes.APPLICATION_M3U8)
         if (p.kind != Kind.LIVE && subtitle != null && subtitle.exists() && subtitle.length() > 0) {
             b.setSubtitleConfigurations(listOf(
                 MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(subtitle))

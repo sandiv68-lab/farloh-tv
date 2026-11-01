@@ -30,6 +30,7 @@ import com.farloh.tv.player.Kind
 import com.farloh.tv.player.Launcher
 import com.farloh.tv.player.Playable
 import com.farloh.tv.player.PlayerFactory
+import com.farloh.tv.player.StreamGate
 import kotlin.math.abs
 
 /**
@@ -326,7 +327,8 @@ class MultiviewActivity : BaseActivity() {
     /** [startMs] −1 = where this movie/episode was left off. */
     private fun startCurrent(s: Slot, startMs: Long = -1L) {
         val p = s.current ?: return
-        s.player?.let { s.video.player = null; it.release() }
+        // The old stream is stopped completely first (its connection closes before the new one opens).
+        s.player?.let { s.video.player = null; it.stop(); it.release(); StreamGate.closeConnections() }
         val delay = AudioDelayProcessor().apply { setDelayMs(store.audioDelayMs) }
         val exo = PlayerFactory.build(this, delay, multiview = true)
         // No subtitles in the windows; sound only for the chosen one (applySound below).
@@ -339,7 +341,7 @@ class MultiviewActivity : BaseActivity() {
             startMs >= 0 -> startMs
             else -> store.resumePosition(p.resumeKey, p.playlistId)
         }
-        exo.setMediaItem(PlayerFactory.mediaItem(p), start)
+        exo.setMediaItem(PlayerFactory.mediaItem(p, url = StreamGate.streamUrl(store, p)), start)
         exo.prepare()
         exo.play()
         s.player = exo
@@ -432,7 +434,8 @@ class MultiviewActivity : BaseActivity() {
     private fun clear(s: Slot) {
         saveSlot(s)
         handler.removeCallbacks(s.hideLabel)
-        s.player?.let { s.video.player = null; it.release() }
+        // The old stream is stopped completely first (its connection closes before the new one opens).
+        s.player?.let { s.video.player = null; it.stop(); it.release(); StreamGate.closeConnections() }
         s.player = null
         s.delay = null
         s.items = emptyList()
@@ -446,7 +449,8 @@ class MultiviewActivity : BaseActivity() {
     private fun releaseAll() {
         slots.forEach { s ->
             saveSlot(s)
-            s.player?.let { s.video.player = null; it.release() }
+            // Each stream is stopped completely and its connection closed (before the full-screen player starts).
+            s.player?.let { s.video.player = null; it.stop(); it.release(); StreamGate.closeConnections() }
             s.player = null
         }
     }

@@ -173,7 +173,7 @@ class SettingsActivity : BaseActivity() {
     private fun buildRows(): List<Row> {
         val r = ArrayList<Row>()
 
-        r += Row.Header("General", "general", R.drawable.ic_settings, "Subtitles, picture-in-picture, recently added, history")
+        r += Row.Header("General", "general", R.drawable.ic_settings, "Subtitles, picture-in-picture, recently added, history, disconnect on exit")
         r += Row.Item("Subtitles", label(SUB_MODES, store.subtitleMode),
             "Auto shows subtitles only when the stream marks them as default") {
             Dialogs.choose(this, "Subtitles", SUB_MODES.map { it.second }, SUB_MODES.map { it.first }, store.subtitleMode) {
@@ -219,6 +219,17 @@ class SettingsActivity : BaseActivity() {
             "Try HLS if channels stutter or won't start") {
             Dialogs.choose(this, "Live TV stream format", listOf("MPEG-TS (.ts) – recommended", "HLS (.m3u8)"),
                 listOf("ts", "m3u8"), store.liveFormat) { store.liveFormat = it; refresh() }
+        }
+        val maxCons = store.maxConnections(null)
+        r += Row.Item("Disconnect stream on exit", when (store.disconnectMode) {
+            "on" -> "On"; "off" -> "Off"
+            else -> "Automatic (" + (if (maxCons == 1) "on – 1-connection account" else "off – ${maxCons ?: "?"} connections") + ")"
+        }, "Fully closes a stream when you leave the player or switch channel, movie or episode, so a 1-connection " +
+            "account doesn't get 'too many connections' while the old one times out. Live TV uses .ts while it's on") {
+            Dialogs.choose(this, "Disconnect stream on exit",
+                listOf("Automatic – on for accounts with 1 connection", "On", "Off"), listOf("auto", "on", "off"), store.disconnectMode) {
+                store.disconnectMode = it; refresh()
+            }
         }
         r += Row.Item("Default player", if (store.externalByDefault) "External" else "Built-in") {
             Dialogs.choose(this, "Default player", listOf("Built-in player", "External player"),
