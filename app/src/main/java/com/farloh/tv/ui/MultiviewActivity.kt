@@ -328,7 +328,7 @@ class MultiviewActivity : BaseActivity() {
     private fun startCurrent(s: Slot, startMs: Long = -1L) {
         val p = s.current ?: return
         // The old stream is stopped completely first (its connection closes before the new one opens).
-        s.player?.let { s.video.player = null; it.stop(); it.release(); StreamGate.closeConnections() }
+        s.player?.let { s.video.player = null; it.stop(); StreamGate.close(it); it.release() }
         val delay = AudioDelayProcessor().apply { setDelayMs(store.audioDelayMs) }
         val exo = PlayerFactory.build(this, delay, multiview = true)
         // No subtitles in the windows; sound only for the chosen one (applySound below).
@@ -435,7 +435,7 @@ class MultiviewActivity : BaseActivity() {
         saveSlot(s)
         handler.removeCallbacks(s.hideLabel)
         // The old stream is stopped completely first (its connection closes before the new one opens).
-        s.player?.let { s.video.player = null; it.stop(); it.release(); StreamGate.closeConnections() }
+        s.player?.let { s.video.player = null; it.stop(); StreamGate.close(it); it.release() }
         s.player = null
         s.delay = null
         s.items = emptyList()
@@ -450,7 +450,7 @@ class MultiviewActivity : BaseActivity() {
         slots.forEach { s ->
             saveSlot(s)
             // Each stream is stopped completely and its connection closed (before the full-screen player starts).
-            s.player?.let { s.video.player = null; it.stop(); it.release(); StreamGate.closeConnections() }
+            s.player?.let { s.video.player = null; it.stop(); StreamGate.close(it); it.release() }
             s.player = null
         }
     }

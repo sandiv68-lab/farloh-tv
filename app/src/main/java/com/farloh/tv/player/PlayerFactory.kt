@@ -39,7 +39,9 @@ object PlayerFactory {
      */
     fun build(ctx: Context, delay: AudioDelayProcessor, multiview: Boolean = false): ExoPlayer {
         val store = Store.get(ctx)
-        val http = OkHttpDataSource.Factory(Net.client.newBuilder().readTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build())
+        // Its own network client, so "Disconnect stream on exit" can shut this player's connections at once.
+        val client = StreamGate.newClient()
+        val http = OkHttpDataSource.Factory(client)
             .setUserAgent(Net.USER_AGENT)
         // "Disconnect stream on exit": don't keep connections open for re-use (servers count them).
         val disconnect = store.disconnectMode == "on" ||
@@ -49,12 +51,14 @@ object PlayerFactory {
             DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
         )
         val mediaSources = DefaultMediaSourceFactory(DefaultDataSource.Factory(ctx, http), extractors)
-        return ExoPlayer.Builder(ctx, renderers(ctx, store.decoderMode, delay, multiview))
+        val player = ExoPlayer.Builder(ctx, renderers(ctx, store.decoderMode, delay, multiview))
             .setMediaSourceFactory(mediaSources)
             .setLoadControl(loadControl(if (multiview) "small" else store.bufferSize))
             .setAudioAttributes(audioAttributes, !multiview)
             .setHandleAudioBecomingNoisy(!multiview)
             .build()
+        StreamGate.register(player, client)
+        return player
     }
 
     /**

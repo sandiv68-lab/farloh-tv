@@ -457,9 +457,9 @@ class PlayerActivity : BaseActivity() {
         gateJob?.cancel()
         // Stop the stream first (no background buffering), then free every connection it used.
         player?.stop()
+        StreamGate.close(player)
         player?.release()
         player = null
-        StreamGate.closeConnections()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -896,7 +896,7 @@ class PlayerActivity : BaseActivity() {
         val exo = player ?: return
         val pos = exo.currentPosition
         val playing = exo.playWhenReady
-        if (store.disconnectOn(current.playlistId)) { exo.stop(); StreamGate.closeConnections() }
+        if (store.disconnectOn(current.playlistId)) { exo.stop(); StreamGate.close(exo) }
         exo.setMediaItem(mediaItem(current), pos)
         exo.prepare()
         exo.playWhenReady = playing
@@ -919,13 +919,16 @@ class PlayerActivity : BaseActivity() {
             // Stop the old stream completely (no more buffering or retries) and close its connections first.
             exo.stop()
             exo.clearMediaItems()
-            StreamGate.closeConnections()
+            StreamGate.close(exo)
             val acc = store.accountFor(p.playlistId) ?: account
             if (acc != null && store.maxConnections(p.playlistId) == 1) {
                 gateJob = lifecycleScope.launch {
                     showStatus("Freeing the connection…")
-                    StreamGate.waitUntilFree(store, acc, p.playlistId)
+                    val freed = StreamGate.waitUntilFree(store, acc, p.playlistId, maxMs = 20_000) { active, max, sec ->
+                        showStatus("Freeing the connection…\nYour provider still shows $active of $max in use ($sec s)")
+                    }
                     hideStatus()
+                    if (!freed) toast("Your provider is still holding the old connection – starting anyway", long = true)
                     if (player === exo && current === p) startStream(exo, p, start)
                 }
                 showStarted(p, start)
@@ -958,7 +961,7 @@ class PlayerActivity : BaseActivity() {
 
     private fun reconnect() {
         val exo = player ?: return
-        if (store.disconnectOn(current.playlistId)) { exo.stop(); StreamGate.closeConnections() }
+        if (store.disconnectOn(current.playlistId)) { exo.stop(); StreamGate.close(exo) }
         exo.setMediaItem(mediaItem(current))
         exo.prepare()
         exo.play()

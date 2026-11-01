@@ -379,7 +379,7 @@ class SettingsActivity : BaseActivity() {
             r += Row.Item("Run in the background", if (bg) "Allowed by Android" else "Not allowed",
                 "Needed so recordings carry on while you're not using the app or the TV is off. " +
                     "Some boxes also have their own energy optimisation for each app – turn it off for Farloh TV") {
-                if (bg) RecordUi.openAppInfo(this) else RecordUi.askBackground(this)
+                if (bg) RecordUi.openEnergySettings(this) else RecordUi.askBackground(this)
             }
         }
         if (android.os.Build.VERSION.SDK_INT >= 31) {

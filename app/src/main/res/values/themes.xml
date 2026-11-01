@@ -20,20 +20,26 @@
         <item name="android:windowBackground">@drawable/launch_background</item>
     </style>
 
-    <!-- Every pop-up: see-through blue (70%), compact lines, the app's font, buttons not in capitals. -->
+    <!-- Every pop-up: compact lines, the app's font, buttons not in capitals. -->
     <style name="Theme.Farloh.Dialog" parent="Theme.AppCompat.Dialog.Alert">
         <item name="colorAccent">@color/accent</item>
         <item name="android:windowBackground">@drawable/dialog_bg</item>
-        <item name="android:backgroundDimAmount">0.35</item>
         <item name="android:textColorPrimary">@color/text</item>
         <item name="android:textColorSecondary">@color/text2</item>
         <item name="alertDialogStyle">@style/Farloh.AlertDialog</item>
+        <item name="dialogPreferredPadding">20dp</item>
         <item name="android:windowTitleStyle">@style/Farloh.DialogTitle</item>
         <item name="buttonBarButtonStyle">@style/Farloh.DialogButton</item>
         <item name="buttonBarPositiveButtonStyle">@style/Farloh.DialogButton</item>
         <item name="buttonBarNegativeButtonStyle">@style/Farloh.DialogButton</item>
         <item name="buttonBarNeutralButtonStyle">@style/Farloh.DialogButton</item>
         <item name="android:textAppearanceMedium">@style/Farloh.DialogText</item>
+    </style>
+
+    <!-- In the player: the same pop-ups, see-through blue (70%) so the video shows behind. -->
+    <style name="Theme.Farloh.Dialog.Player">
+        <item name="android:windowBackground">@drawable/dialog_bg_player</item>
+        <item name="android:backgroundDimAmount">0.3</item>
     </style>
 
     <style name="Farloh.AlertDialog" parent="AlertDialog.AppCompat">
@@ -64,11 +70,13 @@
         <item name="android:textSize">15sp</item>
         <item name="android:textColor">@color/accent</item>
         <item name="android:background">@drawable/focus_bg</item>
-        <item name="android:minHeight">40dp</item>
+        <item name="android:minHeight">36dp</item>
     </style>
 
     <style name="Theme.Farloh.Player" parent="Theme.Farloh">
         <item name="android:windowBackground">@android:color/black</item>
+        <item name="alertDialogTheme">@style/Theme.Farloh.Dialog.Player</item>
+        <item name="android:alertDialogTheme">@style/Theme.Farloh.Dialog.Player</item>
         <item name="android:colorBackground">@android:color/black</item>
         <item name="android:windowFullscreen">true</item>
     </style>

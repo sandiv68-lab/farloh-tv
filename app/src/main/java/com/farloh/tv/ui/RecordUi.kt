@@ -335,8 +335,8 @@ object RecordUi {
         fun status(ok: Boolean) = if (ok) "✓ allowed" else "✗ not allowed yet"
         val text = buildString {
             append("For recordings to work while you're not using the app:\n\n")
-            append("1. Turn off battery optimisation / energy saving for Farloh TV. ")
-            append("Some boxes and phones have their own setting as well, e.g. Apps → Farloh TV → Energy optimisation → Off.\n\n")
+            append("1. Turn off battery / energy optimisation for Farloh TV (Open Settings → Farloh TV → don't optimise / off). ")
+            append("Some boxes and phones also have it on the app's own page: App info → Energy optimisation → Off.\n\n")
             append("2. Allow all of Farloh TV's permissions, including Alarms & reminders (so recordings start on time) and notifications.\n\n")
             append("3. The TV screen can be off, but the Android box must stay plugged in, switched on (standby is fine) and connected to the internet.")
             if (activity.tvMode) append(" If the box has Settings → System → Power & energy → Energy modes, don't choose \"Low energy\" (it turns the internet off in standby).")
@@ -367,10 +367,21 @@ object RecordUi {
             .setTitle("Before recording")
             .setView(android.widget.ScrollView(activity).apply { addView(box) })
             .setPositiveButton("OK") { _, _ -> done(); then() }
-            .setNegativeButton("Open Settings") { _, _ -> done(); openAppInfo(activity); then() }
+            .setNegativeButton("Open Settings") { _, _ -> done(); openEnergySettings(activity); then() }
+            .setNeutralButton("App info") { _, _ -> done(); openAppInfo(activity); then() }
             .setCancelable(false)
-        if (!bg) b.setNeutralButton("Allow background") { _, _ -> done(); askBackground(activity); then() }
         b.show()
+    }
+
+    /**
+     * Android's battery / energy optimisation settings (the list of apps: choose Farloh TV → don't optimise / off).
+     * Falls back to Farloh's App info page where a device doesn't have that screen.
+     */
+    fun openEnergySettings(activity: BaseActivity) {
+        if (Build.VERSION.SDK_INT >= 23) {
+            try { activity.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); return } catch (e: Exception) { }
+        }
+        openAppInfo(activity)
     }
 
     /** Android's App info page for Farloh TV (battery / energy, permissions, Alarms & reminders). */

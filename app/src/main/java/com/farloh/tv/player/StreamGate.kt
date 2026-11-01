@@ -5,6 +5,10 @@ import com.farloh.tv.data.Store
 import com.farloh.tv.data.Xtream
 import com.farloh.tv.net.Net
 import kotlinx.coroutines.delay
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 /**
  * "Disconnect stream on exit" (Settings → General): for accounts that allow few connections, the old stream's
@@ -16,8 +20,29 @@ import kotlinx.coroutines.delay
  */
 object StreamGate {
 
-    /** Closes the network connections kept open for re-use (the stream's own one closes when the player stops). */
-    fun closeConnections() = runCatching { Net.client.connectionPool.evictAll() }
+    /** Each player's own network client, so its stream connections can be shut without touching other players. */
+    private val clients = java.util.WeakHashMap<Any, OkHttpClient>()
+
+    /** A network client for one player: its own connection pool and request queue. */
+    fun newClient(): OkHttpClient = Net.client.newBuilder()
+        .connectionPool(ConnectionPool())
+        .dispatcher(Dispatcher())
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
+
+    @Synchronized
+    fun register(player: Any, client: OkHttpClient) { clients[player] = client }
+
+    /**
+     * Shuts every network connection of [player] straight away: requests still running are cancelled
+     * (their sockets close) and connections kept for re-use are closed.
+     */
+    @Synchronized
+    fun close(player: Any?) {
+        val c = clients[player ?: return] ?: return
+        runCatching { c.dispatcher.cancelAll() }
+        runCatching { c.connectionPool.evictAll() }
+    }
 
     /** Live TV: the .ts stream instead of HLS while disconnecting is on. */
     fun streamUrl(store: Store, p: Playable): String =
@@ -28,12 +53,16 @@ object StreamGate {
      * 1-connection subscriptions: waits (up to [maxMs]) until the server shows a free connection.
      * Returns false if it gave up (the next stream is started anyway).
      */
-    suspend fun waitUntilFree(store: Store, account: Account, pid: String?, maxMs: Long = 10_000): Boolean {
+    suspend fun waitUntilFree(
+        store: Store, account: Account, pid: String?, maxMs: Long = 10_000,
+        progress: (active: Int, max: Int, seconds: Int) -> Unit = { _, _, _ -> },
+    ): Boolean {
         if (!store.disconnectOn(pid) || store.maxConnections(pid) != 1) return true
-        val until = System.currentTimeMillis() + maxMs
-        while (System.currentTimeMillis() < until) {
+        val started = System.currentTimeMillis()
+        while (System.currentTimeMillis() - started < maxMs) {
             val (active, max) = Xtream.connections(account) ?: return true // can't ask: don't hold things up
             if (active < max) return true
+            progress(active, max, ((System.currentTimeMillis() - started) / 1000).toInt())
             delay(1_000)
         }
         return false

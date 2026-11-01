@@ -4,6 +4,6 @@
     android:layout_width="match_parent" android:layout_height="wrap_content"
     android:background="@drawable/dialog_row_bg" android:checkMark="?android:attr/listChoiceIndicatorMultiple"
     android:checkMarkTint="@color/accent" android:ellipsize="end" android:fontFamily="sans-serif"
-    android:gravity="center_vertical" android:maxLines="2" android:minHeight="40dp"
-    android:paddingStart="22dp" android:paddingTop="6dp" android:paddingEnd="16dp" android:paddingBottom="6dp"
-    android:textColor="@color/text" android:textSize="15sp" />
+    android:gravity="center_vertical" android:maxLines="2" android:minHeight="34dp"
+    android:paddingStart="20dp" android:paddingTop="4dp" android:paddingEnd="16dp" android:paddingBottom="4dp"
+    android:textColor="@color/text" android:textSize="14sp" />
