@@ -69,8 +69,9 @@ class MovieDetailActivity : BaseActivity() {
         play.setOnClickListener { Launcher.play(this, listOf(bestPlayable()), 0, resume = true) }
         restart.setOnClickListener { Launcher.play(this, listOf(bestPlayable()), 0, external = false, resume = false) }
         findViewById<View>(R.id.external).setOnClickListener { Launcher.play(this, listOf(bestPlayable()), 0, external = true) }
+        findViewById<View>(R.id.more).setOnClickListener { moreOptions() }
         findViewById<ImageView>(R.id.fav).setOnClickListener {
-            val added = store.toggleFavorite(id, com.farloh.tv.data.Section.MOVIES, pid)
+            store.toggleFavorite(id, com.farloh.tv.data.Section.MOVIES, pid)
             updateFav()
         }
         updateFav()
@@ -89,6 +90,32 @@ class MovieDetailActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
+        updatePlayButtons()
+    }
+
+    /** ⋮ More: watched / unwatched and Recently watched. */
+    private fun moreOptions() {
+        val key = "${Kind.MOVIE.name}_$id"
+        val section = com.farloh.tv.data.Section.MOVIES
+        val watched = store.isWatched(key, pid)
+        val opts = ArrayList<Pair<String, () -> Unit>>()
+        opts += (if (watched) "Mark as unwatched" else "Mark as watched") to {
+            store.setWatched(listOf(key), !watched, pid)
+            toast(if (watched) "Marked as unwatched" else "Marked as watched")
+            updatePlayButtons()
+        }
+        if (store.inHistory(section, id, pid)) opts += "Remove from Recently watched" to {
+            store.removeWatched(section, id, pid)
+            toast("Removed from Recently watched")
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(name)
+            .setItems(opts.map { it.first }.toTypedArray()) { _, which -> opts[which].second() }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun updatePlayButtons() {
         if (!::play.isInitialized) return
         val pos = store.resumePosition("${Kind.MOVIE.name}_$id", pid)
         updateDownloadButton()

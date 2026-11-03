@@ -61,10 +61,11 @@ class SeriesDetailActivity : BaseActivity() {
 
         findViewById<View>(R.id.back).setOnClickListener { finish() }
         findViewById<ImageView>(R.id.fav).setOnClickListener {
-            val added = store.toggleFavorite(seriesId, com.farloh.tv.data.Section.SERIES, pid)
+            store.toggleFavorite(seriesId, com.farloh.tv.data.Section.SERIES, pid)
             updateFav()
         }
         updateFav()
+        findViewById<View>(R.id.more).setOnClickListener { moreOptions() }
         findViewById<TextView>(R.id.title).text = showName
         findViewById<ImageView>(R.id.poster).loadImage(cover)
         // Short screens: smaller poster so the info column needs less scrolling.
@@ -86,11 +87,14 @@ class SeriesDetailActivity : BaseActivity() {
         episodesRv.adapter = episodeAdapter
         episodeAdapter.onClick = { _, pos -> playEpisode(pos, external = null) }
         episodeAdapter.onLongClick = { ep, pos ->
-            val downloaded = Downloads.find(this, "${Kind.EPISODE.name}_${ep.id}") != null
+            val key = episodeKey(ep)
+            val downloaded = Downloads.find(this, key) != null
+            val watched = store.isWatched(key, pid)
             AlertDialog.Builder(this)
                 .setTitle(episodeTitle(ep))
                 .setItems(arrayOf(
                     "Play", "Play from start", "Open in external",
+                    if (watched) "Mark as unwatched" else "Mark as watched",
                     if (downloaded) "Open Downloads" else "Download episode",
                     "Download all of ${seasonLabel(currentSeason)}",
                 )) { _, which ->
@@ -98,9 +102,10 @@ class SeriesDetailActivity : BaseActivity() {
                         0 -> playEpisode(pos, external = false)
                         1 -> playEpisode(pos, external = false, resume = false)
                         2 -> playEpisode(pos, external = true)
-                        3 -> if (downloaded) startActivity(android.content.Intent(this, DownloadsActivity::class.java))
+                        3 -> { store.setWatched(listOf(key), !watched, pid); episodeAdapter.notifyItemChanged(pos) }
+                        4 -> if (downloaded) startActivity(android.content.Intent(this, DownloadsActivity::class.java))
                              else downloadEpisodes(listOf(ep))
-                        4 -> downloadEpisodes(episodeAdapter.items)
+                        5 -> downloadEpisodes(episodeAdapter.items)
                     }
                 }
                 .show()
@@ -126,12 +131,18 @@ class SeriesDetailActivity : BaseActivity() {
                     empty.text = "No episodes available."
                     empty.visibility = View.VISIBLE
                 } else {
-                    currentSeason = seasons.first()
+                    // Start on the episode to watch next (or the one left unfinished), on its season.
+                    val start = startEpisode(i)
+                    currentSeason = start?.season?.takeIf { it in seasons } ?: seasons.first()
                     seasonAdapter.submit(seasons)
-                    episodeAdapter.submit(i.episodes[currentSeason].orEmpty())
-                    findViewById<RecyclerView>(R.id.episodes).post {
-                        findViewById<RecyclerView>(R.id.episodes).layoutManager?.findViewByPosition(0)?.requestFocus()
-                    }
+                    val eps = i.episodes[currentSeason].orEmpty()
+                    episodeAdapter.submit(eps)
+                    val at = eps.indexOfFirst { it.id == start?.id }.coerceAtLeast(0)
+                    val seasonsRv = findViewById<RecyclerView>(R.id.seasons)
+                    seasonsRv.scrollToPosition(seasons.indexOf(currentSeason).coerceAtLeast(0))
+                    val rv = findViewById<RecyclerView>(R.id.episodes)
+                    (rv.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(at, 0)
+                    rv.post { rv.layoutManager?.findViewByPosition(at)?.requestFocus() }
                 }
             } catch (e: Exception) {
                 empty.text = Net.friendlyError(e)
@@ -212,13 +223,63 @@ class SeriesDetailActivity : BaseActivity() {
         }
     }
 
+    private fun episodeKey(ep: Episode) = "${Kind.EPISODE.name}_${ep.id}"
+
+    /**
+     * The episode to start on: the one watched last if it isn't finished, otherwise the one after it
+     * (the last one stays if there's nothing after it). Specials only count when you watched one last.
+     * Null = never watched (start at the top).
+     */
+    private fun startEpisode(i: SeriesInfo): Episode? {
+        val order = i.episodes.keys.filter { it != 0 }.sorted() + i.episodes.keys.filter { it == 0 }
+        val all = order.flatMap { s -> i.episodes[s].orEmpty().sortedBy { it.num } }
+        if (all.isEmpty()) return null
+        val lastId = store.watchHistory(com.farloh.tv.data.Section.SERIES, pid).firstOrNull { it.id == seriesId }?.episode
+        val last = all.firstOrNull { it.id == lastId }
+            // Not in Recently watched (e.g. history off): the last episode with any progress.
+            ?: all.lastOrNull { store.progress(episodeKey(it), pid) > 0 }
+            ?: return null
+        if (!store.isWatched(episodeKey(last), pid)) return last
+        val pool = if (last.season == 0) all else all.filter { it.season != 0 }
+        val idx = pool.indexOf(last)
+        return pool.getOrNull(idx + 1) ?: last
+    }
+
+    /** ⋮ More: mark the season watched / unwatched, remove the show from Recently watched. */
+    private fun moreOptions() {
+        val section = com.farloh.tv.data.Section.SERIES
+        val season = seasonLabel(currentSeason)
+        val keys = info?.episodes?.get(currentSeason).orEmpty().map { episodeKey(it) }
+        val opts = ArrayList<Pair<String, () -> Unit>>()
+        if (keys.isNotEmpty()) {
+            opts += "Mark $season as watched" to {
+                store.setWatched(keys, true, pid); episodeAdapter.notifyDataSetChanged(); toast("$season marked as watched")
+            }
+            opts += "Mark $season as unwatched" to {
+                store.setWatched(keys, false, pid); episodeAdapter.notifyDataSetChanged(); toast("$season marked as unwatched")
+            }
+        }
+        if (store.inHistory(section, seriesId, pid)) opts += "Remove from Recently watched" to {
+            store.removeWatched(section, seriesId, pid); toast("Removed from Recently watched")
+        }
+        if (opts.isEmpty()) return
+        AlertDialog.Builder(this)
+            .setTitle(showName)
+            .setItems(opts.map { it.first }.toTypedArray()) { _, which -> opts[which].second() }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
     private fun seasonLabel(season: Int) = if (season == 0) "Specials" else "Season $season"
 
     private fun remotePlayable(ep: Episode) = Playable(
         Kind.EPISODE, ep.id, episodeTitle(ep), account.episodeUrl(ep.id, ep.ext), ep.image ?: cover,
         subtitle = showName, searchTitle = showName, tmdbId = info?.tmdbId, year = info?.year?.ifBlank { null },
-        season = ep.season, episode = ep.num, ext = ep.ext, playlistId = pid, seriesId = seriesId,
+        season = ep.season, episode = ep.num, ext = ep.ext, playlistId = pid, seriesId = seriesId, cover = showCover(),
     )
+
+    /** The show's poster: the one from the list, else the one from the show's details. */
+    private fun showCover() = cover?.takeIf { it.isNotBlank() } ?: info?.cover
 
     private fun downloadEpisodes(eps: List<Episode>) {
         val title = if (eps.size == 1) "$showName ${episodeTitle(eps[0])}" else "$showName – ${seasonLabel(currentSeason)}"
@@ -240,7 +301,7 @@ class SeriesDetailActivity : BaseActivity() {
         ).joinToString("  •  ")
         v.findViewById<TextView>(R.id.plot).text = ep.plot
         val bar = v.findViewById<ProgressBar>(R.id.watched)
-        val progress = store.progress("${Kind.EPISODE.name}_${ep.id}", pid)
+        val progress = store.progress(episodeKey(ep), pid)
         if (progress > 0) {
             bar.progress = progress
             bar.visibility = View.VISIBLE
@@ -257,7 +318,7 @@ class SeriesDetailActivity : BaseActivity() {
             val key = "${Kind.EPISODE.name}_${ep.id}"
             val entry = local[key]
             val offline = if (entry != null && states[key]?.state == DownloadState.DONE) Downloads.playable(this, entry) else null
-            offline?.copy(tmdbId = info?.tmdbId, seriesId = seriesId) ?: remotePlayable(ep)
+            offline?.copy(tmdbId = info?.tmdbId, seriesId = seriesId, cover = showCover(), subtitle = offline.subtitle ?: showName) ?: remotePlayable(ep)
         }
         Launcher.play(this, queue, position, external = external, resume = resume, categoryName = showName)
     }

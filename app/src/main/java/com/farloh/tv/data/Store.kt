@@ -19,6 +19,9 @@ import javax.crypto.spec.GCMParameterSpec
 /** One saved server login. */
 data class Playlist(val id: String, val name: String, val account: Account)
 
+/** A movie, or a TV show (with [episode] = the episode watched last), in Recently watched. */
+data class WatchEntry(val id: String, val name: String, val image: String?, val time: Long, val episode: String? = null)
+
 /**
  * App settings and saved playlists. Logins are encrypted with a key held in the Android Keystore (Android 6+).
  * Favourites, history, hidden groups, resume positions and cached lists are kept separately per playlist.
@@ -222,7 +225,7 @@ class Store private constructor(context: Context) {
 
     fun addToHistory(id: String, pid: String? = null) {
         if (historyLimit <= 0) return
-        val list = (listOf(id) + history(pid).filter { it != id }).take(100)
+        val list = (listOf(id) + history(pid).filter { it != id }).take(MAX_HISTORY)
         prefs.edit().putString(k("history", pid), JSONArray(list).toString()).apply()
         prefs.edit().putLong(k("history_time_$id", pid), System.currentTimeMillis()).apply()
     }
@@ -230,14 +233,62 @@ class Store private constructor(context: Context) {
     /** When a channel was last watched (for ordering combined history). */
     fun historyTime(id: String, pid: String? = null): Long = prefs.getLong(k("history_time_$id", pid), 0L)
 
+    /** Clears Recently watched in Live TV, Movies and TV Shows. Resume points and watched bars are kept. */
     fun clearHistory() {
         val e = prefs.edit()
         for (p in viewPlaylists()) {
-            e.remove(k("history", p.id))
+            e.remove(k("history", p.id)).remove(k("watched_vod", p.id)).remove(k("watched_series", p.id))
             prefs.all.keys.filter { it.startsWith("${p.id}:history_time_") }.forEach { e.remove(it) }
         }
         e.apply()
     }
+
+    // ---- Recently watched: Movies & TV Shows ----
+
+    private fun watchKey(section: Section, pid: String?) = k(if (section == Section.SERIES) "watched_series" else "watched_vod", pid)
+
+    /** Movies or TV shows watched, most recent first. */
+    fun watchHistory(section: Section, pid: String? = null): List<WatchEntry> = runCatching {
+        val a = JSONArray(prefs.getString(watchKey(section, pid), "[]"))
+        (0 until a.length()).map { i ->
+            val o = a.getJSONObject(i)
+            WatchEntry(o.getString("id"), o.optString("n"), o.optString("i").ifEmpty { null }, o.optLong("t"),
+                o.optString("e").ifEmpty { null })
+        }
+    }.getOrDefault(emptyList())
+
+    private fun saveWatchHistory(section: Section, pid: String?, list: List<WatchEntry>) {
+        val a = JSONArray()
+        for (w in list.take(MAX_HISTORY)) a.put(JSONObject().put("id", w.id).put("n", w.name).put("t", w.time).apply {
+            w.image?.let { put("i", it) }
+            w.episode?.let { put("e", it) }
+        })
+        prefs.edit().putString(watchKey(section, pid), a.toString()).apply()
+    }
+
+    /**
+     * Puts a movie or show at the top of its Recently watched. A missing poster keeps the one saved before,
+     * else uses [fallbackImage] (e.g. an episode's picture when the show's poster isn't known).
+     */
+    fun noteWatched(section: Section, entry: WatchEntry, pid: String? = null, fallbackImage: String? = null) {
+        if (historyLimit <= 0) return
+        val old = watchHistory(section, pid)
+        val prev = old.firstOrNull { it.id == entry.id }
+        val e = entry.copy(name = entry.name.ifBlank { prev?.name.orEmpty() }, image = entry.image ?: prev?.image ?: fallbackImage)
+        saveWatchHistory(section, pid, listOf(e) + old.filter { it.id != entry.id })
+    }
+
+    fun removeWatched(section: Section, id: String, pid: String? = null) {
+        if (section == Section.LIVE) {
+            prefs.edit().putString(k("history", pid), JSONArray(history(pid).filter { it != id }).toString())
+                .remove(k("history_time_$id", pid)).apply()
+            return
+        }
+        saveWatchHistory(section, pid, watchHistory(section, pid).filter { it.id != id })
+    }
+
+    fun inHistory(section: Section, id: String, pid: String? = null): Boolean =
+        if (section == Section.LIVE) id in history(pid) else watchHistory(section, pid).any { it.id == id }
 
     /** Category ids hidden by parental control for a section. */
     fun hiddenCategories(section: Section, pid: String? = null): Set<String> =
@@ -267,19 +318,37 @@ class Store private constructor(context: Context) {
         prefs.edit().putLong(k("pos_$key", pid), positionMs).putLong(k("dur_$key", pid), durationMs).apply()
     }
 
-    /** Saved position, or 0 if never started / basically finished. */
+    /** Saved position, or 0 if never started / watched. */
     fun resumePosition(key: String, pid: String? = null): Long {
         val pos = prefs.getLong(k("pos_$key", pid), 0)
         val dur = prefs.getLong(k("dur_$key", pid), 0)
-        if (pos < 30_000 || (dur > 0 && pos > dur * 0.95)) return 0
+        if (pos < 30_000 || (dur > 0 && pos >= dur * WATCHED_AT)) return 0
         return pos
     }
 
-    /** 0..1000 watched progress, -1 if never played. */
+    /** 0..1000 watched progress (1000 = watched, i.e. 90% or more), -1 if never played. */
     fun progress(key: String, pid: String? = null): Int {
         val dur = prefs.getLong(k("dur_$key", pid), 0)
         if (dur <= 0) return -1
-        return ((prefs.getLong(k("pos_$key", pid), 0) * 1000) / dur).toInt().coerceIn(0, 1000)
+        val pos = prefs.getLong(k("pos_$key", pid), 0)
+        if (pos >= dur * WATCHED_AT) return 1000
+        return ((pos * 1000) / dur).toInt().coerceIn(0, 1000)
+    }
+
+    fun isWatched(key: String, pid: String? = null) = progress(key, pid) >= 1000
+
+    /** Mark as watched (full bar) or unwatched (no bar, starts from the beginning). */
+    fun setWatched(keys: List<String>, watched: Boolean, pid: String? = null) {
+        val e = prefs.edit()
+        for (key in keys) {
+            if (watched) {
+                val dur = prefs.getLong(k("dur_$key", pid), 0).takeIf { it > 0 } ?: 1L
+                e.putLong(k("pos_$key", pid), dur).putLong(k("dur_$key", pid), dur)
+            } else {
+                e.remove(k("pos_$key", pid)).remove(k("dur_$key", pid))
+            }
+        }
+        e.apply()
     }
 
     // =================== App-wide settings ===================
@@ -508,6 +577,10 @@ class Store private constructor(context: Context) {
     companion object {
         private const val KEY_PLAYLISTS = "playlists"
         private const val KEY_ACTIVE = "active_playlist"
+        /** Played this far (90%) = watched: full bar, starts from the beginning next time. */
+        const val WATCHED_AT = 0.90
+        /** Recently watched keeps this many per section (the History limit chooses how many show). */
+        const val MAX_HISTORY = 100
         /** Stored encrypted with this device's key; exported in plain text inside the (password-protected) backup. */
         private val SECRET_KEYS = setOf(KEY_PLAYLISTS, "subs_password", "subs_api_key")
         /** Per-device screen settings that a restore leaves as they are. */

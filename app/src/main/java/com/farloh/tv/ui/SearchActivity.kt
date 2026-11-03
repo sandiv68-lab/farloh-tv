@@ -111,6 +111,11 @@ class SearchActivity : BaseActivity() {
         }
         val sec = if (item is Show) Section.SERIES else Section.MOVIES
         v.findViewById<View>(R.id.fav).visibility = if (favKey(sec, item) in favs) View.VISIBLE else View.GONE
+        val progress = if (item is Show) -1 else store.progress("${Kind.MOVIE.name}_${item.id}", item.playlistId)
+        v.findViewById<ProgressBar>(R.id.watched).apply {
+            visibility = if (progress > 0) View.VISIBLE else View.GONE
+            if (progress > 0) this.progress = progress
+        }
     }
 
     /** Recent searches, shown before anything has been searched. */

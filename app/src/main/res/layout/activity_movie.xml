@@ -21,8 +21,11 @@
                         android:textColor="@color/text" android:textSize="28sp" android:textStyle="bold" />
                     <TextView android:id="@+id/meta" android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:layout_marginTop="6dp" android:textColor="@color/text2" android:textSize="14sp" />
+                    <!-- Scrolls sideways when the buttons don't fit (phones). -->
+                    <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:layout_marginTop="18dp" android:scrollbars="none" android:fillViewport="false">
                     <LinearLayout android:id="@+id/buttons" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:layout_marginTop="18dp" android:orientation="horizontal">
+                        android:orientation="horizontal">
                         <Button android:id="@+id/play" style="@style/Btn.Primary" android:text="▶  Play" />
                         <Button android:id="@+id/restart" style="@style/Btn" android:layout_marginStart="10dp"
                             android:text="Start over" android:visibility="gone" />
@@ -30,9 +33,12 @@
                             android:src="@drawable/ic_star_border" android:contentDescription="Favourite" />
                         <ImageButton android:id="@+id/external" style="@style/IconBtnBox" android:layout_marginStart="10dp"
                             android:src="@drawable/ic_external" android:contentDescription="Open in external" />
+                        <ImageButton android:id="@+id/more" style="@style/IconBtnBox" android:layout_marginStart="10dp"
+                            android:src="@drawable/ic_more" android:contentDescription="More" />
                         <Button android:id="@+id/download" style="@style/Btn" android:layout_marginStart="10dp"
                             android:drawableStart="@drawable/ic_download" android:drawablePadding="8dp" android:text="Download" />
                     </LinearLayout>
+                    </HorizontalScrollView>
                     <ProgressBar android:id="@+id/loading" android:layout_width="32dp" android:layout_height="32dp"
                         android:layout_marginTop="16dp" />
                     <TextView android:id="@+id/plot" android:layout_width="match_parent" android:layout_height="wrap_content"

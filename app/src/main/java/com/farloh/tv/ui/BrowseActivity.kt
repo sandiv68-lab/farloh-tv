@@ -42,6 +42,8 @@ class BrowseActivity : BaseActivity() {
         private const val ALL = "__all"
         private const val FAV = "__fav"
         private const val RECENT = "__recent"
+        /** Movies & TV Shows: Recently watched (RECENT is Recently added there). */
+        private const val WATCHED = "__watched"
     }
 
     /** A row in the category column. [header] rows are playlist names that open/close (combined view). */
@@ -77,6 +79,7 @@ class BrowseActivity : BaseActivity() {
     private var favs: Set<String> = emptySet()
     private var visible: List<CatalogItem> = emptyList()
     private var recent: List<CatalogItem> = emptyList()
+    private var watched: List<CatalogItem> = emptyList()
     private var stateSignature = ""
 
     private var epgJob: Job? = null
@@ -166,6 +169,7 @@ class BrowseActivity : BaseActivity() {
         super.onResume()
         // Re-draw only if favourites, history or parental settings changed while away.
         if (data != null && signature() != stateSignature) render(keepScroll = true)
+        else if (data != null && section != Section.LIVE) itemAdapter.notifyDataSetChanged() // watched bars
         updated.text = updatedText()
     }
 
@@ -178,7 +182,7 @@ class BrowseActivity : BaseActivity() {
         val pid = part.playlist.id
         listOf(
             store.favorites(section, pid).hashCode(),
-            if (section == Section.LIVE) store.history(pid).hashCode() else 0,
+            if (section == Section.LIVE) store.history(pid).hashCode() else store.watchHistory(section, pid).hashCode(),
             store.hiddenCategories(section, pid).hashCode(),
         ).joinToString(",")
     } + "|${store.recentLimit}|${store.historyLimit}"
@@ -194,12 +198,12 @@ class BrowseActivity : BaseActivity() {
         "az" to "A – Z", "za" to "Z – A",
     )
 
-    /** "All" isn't sorted (big playlists would hang); it stays in the provider's order. */
-    private fun sortMode() = if (currentCat == ALL) "server" else store.sortFor(section, currentCat)
+    /** "All" isn't sorted (big playlists would hang); it stays in the provider's order. Recently watched: newest first. */
+    private fun sortMode() = if (currentCat == ALL || currentCat == WATCHED) "server" else store.sortFor(section, currentCat)
 
     private fun updateSortButton() {
         findViewById<Button>(R.id.sortButton).visibility =
-            if (section == Section.LIVE || currentCat == ALL) View.GONE else View.VISIBLE
+            if (section == Section.LIVE || currentCat == ALL || currentCat == WATCHED) View.GONE else View.VISIBLE
         val label = sortModes.firstOrNull { it.first == sortMode() }?.second ?: "Default order"
         findViewById<Button>(R.id.sortButton).text = if (sortMode() == "server") "Sort" else "Sort: $label"
     }
@@ -389,6 +393,7 @@ class BrowseActivity : BaseActivity() {
         val vis = ArrayList<CatalogItem>()
         val cats = HashMap<String, List<CatalogItem>>()
         val recentLive = ArrayList<Pair<Long, CatalogItem>>()
+        val watchedVod = ArrayList<Pair<Long, CatalogItem>>()
         for (part in parts) {
             val d = part.data ?: continue
             val pid = part.playlist.id
@@ -399,10 +404,15 @@ class BrowseActivity : BaseActivity() {
             if (section == Section.LIVE && store.historyLimit > 0) {
                 val byId = partVisible.associateBy { it.id }
                 for (id in store.history(pid)) byId[id]?.let { recentLive.add(store.historyTime(id, pid) to it) }
+            } else if (section != Section.LIVE && store.historyLimit > 0) {
+                // Only titles still in the list and not in a hidden (locked) group.
+                val byId = partVisible.associateBy { it.id }
+                for (w in store.watchHistory(section, pid)) byId[w.id]?.let { watchedVod.add(w.time to it) }
             }
         }
         visible = vis
         byCategory = cats
+        watched = watchedVod.sortedByDescending { it.first }.map { it.second }.take(store.historyLimit)
         recent = if (section == Section.LIVE) {
             recentLive.sortedByDescending { it.first }.map { it.second }.take(store.historyLimit)
         } else {
@@ -414,8 +424,9 @@ class BrowseActivity : BaseActivity() {
         rows.add(CatRow(FAV, "★  Favourites", visible.count { favKey(it) in favs }))
         if (section == Section.LIVE) {
             if (store.historyLimit > 0) rows.add(CatRow(RECENT, "Recently watched", recent.size))
-        } else if (store.recentLimit > 0) {
-            rows.add(CatRow(RECENT, "Recently added", recent.size))
+        } else {
+            if (store.historyLimit > 0) rows.add(CatRow(WATCHED, "Recently watched", watched.size))
+            if (store.recentLimit > 0) rows.add(CatRow(RECENT, "Recently added", recent.size))
         }
         for (part in parts) {
             val d = part.data
@@ -445,6 +456,7 @@ class BrowseActivity : BaseActivity() {
             currentCat == ALL -> visible
             currentCat == FAV -> visible.filter { favKey(it) in favs }
             currentCat == RECENT -> recent
+            currentCat == WATCHED -> watched
             else -> byCategory[currentCat].orEmpty()
         }
         itemAdapter.submit(if (section == Section.LIVE) list else sorted(list))
@@ -461,6 +473,7 @@ class BrowseActivity : BaseActivity() {
             empty.text = when {
                 currentCat == FAV -> "No favourites yet.\nHold OK (or long-press) on an item to add it."
                 currentCat == RECENT && section == Section.LIVE -> "Channels you watch will appear here."
+                currentCat == WATCHED -> if (section == Section.SERIES) "TV shows you watch will appear here." else "Movies you watch will appear here."
                 currentCat == RECENT -> "Nothing recently added."
                 visible.isEmpty() -> "The server returned an empty list.\nPress Refresh to try again."
                 else -> "Nothing in $catName."
@@ -641,12 +654,17 @@ class BrowseActivity : BaseActivity() {
         badge.text = bits.joinToString("  ·  ")
         badge.visibility = if (bits.isEmpty()) View.GONE else View.VISIBLE
         v.findViewById<View>(R.id.fav).visibility = if (favKey(item) in favs) View.VISIBLE else View.GONE
+        // Movies: how much has been watched (a full bar = watched).
+        val bar = v.findViewById<ProgressBar>(R.id.watched)
+        val progress = if (item is Movie) store.progress("${Kind.MOVIE.name}_${item.id}", item.playlistId) else -1
+        bar.visibility = if (progress > 0) View.VISIBLE else View.GONE
+        if (progress > 0) bar.progress = progress
     }
 
     private fun openDetails(item: CatalogItem) = openItemDetails(this, item)
 
     private fun posterOptions(item: CatalogItem) {
-        ItemOptions.show(this, section, item, accountOf(item)) { render(keepScroll = true) }
+        ItemOptions.show(this, section, item, accountOf(item)) { render(keepScroll = true); itemAdapter.notifyDataSetChanged() }
     }
 
     // ---------------- Remote: MENU key opens options for the focused item ----------------

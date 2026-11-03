@@ -6,7 +6,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import com.farloh.tv.data.Section
 import com.farloh.tv.data.Store
+import com.farloh.tv.data.WatchEntry
 import com.farloh.tv.ui.PlayerActivity
 
 enum class Kind { LIVE, MOVIE, EPISODE }
@@ -30,8 +32,28 @@ data class Playable(
     val playlistId: String? = null,
     /** Episodes: the TV show they belong to (for the ★ button in the player). */
     val seriesId: String? = null,
+    /** Episodes: the TV show's poster (for Recently watched). */
+    val cover: String? = null,
 ) {
     val resumeKey: String get() = "${kind.name}_$id"
+}
+
+/** Movies & TV Shows → Recently watched: notes what's being played (not live channels or recordings). */
+object WatchLog {
+    fun note(ctx: Context, p: Playable) {
+        if (p.id.startsWith("rec_")) return
+        val store = Store.get(ctx)
+        val now = System.currentTimeMillis()
+        when (p.kind) {
+            Kind.MOVIE -> store.noteWatched(Section.MOVIES, WatchEntry(p.id, p.title, p.logo, now), p.playlistId)
+            Kind.EPISODE -> {
+                val show = p.seriesId ?: return // e.g. played from Downloads: the show isn't known
+                store.noteWatched(Section.SERIES, WatchEntry(show, p.subtitle ?: p.searchTitle.orEmpty(), p.cover, now, episode = p.id),
+                    p.playlistId, fallbackImage = p.logo)
+            }
+            Kind.LIVE -> Unit
+        }
+    }
 }
 
 /** What the player should play next. Kept in memory instead of an Intent so long channel lists are cheap. */
@@ -54,6 +76,7 @@ object Launcher {
         if (items.isEmpty()) return
         val i = index.coerceIn(0, items.size - 1)
         if (external ?: Store.get(activity).externalByDefault) {
+            WatchLog.note(activity, items[i])
             External.open(activity, items[i])
             return
         }

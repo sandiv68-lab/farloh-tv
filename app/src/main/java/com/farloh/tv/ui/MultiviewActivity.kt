@@ -347,7 +347,7 @@ class MultiviewActivity : BaseActivity() {
         s.video.player = exo
         s.message.visibility = View.GONE
         s.loading.visibility = View.VISIBLE
-        if (p.kind == Kind.LIVE) store.addToHistory(p.id, p.playlistId)
+        if (p.kind == Kind.LIVE) store.addToHistory(p.id, p.playlistId) else com.farloh.tv.player.WatchLog.note(this, p)
         val i = slots.indexOf(s)
         if (i == selected) soundSlot = i
         applySound()

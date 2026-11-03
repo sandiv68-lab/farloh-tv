@@ -160,7 +160,7 @@ class MvPicker(
         val account = store.accountFor(pl.id)!!
         return Playable(Kind.EPISODE, ep.id, episodeName(ep), account.episodeUrl(ep.id, ep.ext), ep.image ?: cover ?: show.image,
             subtitle = show.name, searchTitle = show.name, season = ep.season, episode = ep.num, ext = ep.ext,
-            playlistId = pl.id, seriesId = show.id)
+            playlistId = pl.id, seriesId = show.id, cover = cover ?: show.image)
     }
 
     // ---------------- Dialog ----------------

@@ -79,7 +79,19 @@ object ItemOptions {
             is Show -> opts += "Open" to { openItemDetails(activity, item) }
         }
         opts += (if (isFav) "Remove from Favourites" else "Add to Favourites") to {
-            val added = store.toggleFavorite(item.id, section, item.playlistId)
+            store.toggleFavorite(item.id, section, item.playlistId)
+            onChanged()
+        }
+        if (item is Movie) {
+            val key = "${Kind.MOVIE.name}_${item.id}"
+            val watched = store.isWatched(key, item.playlistId)
+            opts += (if (watched) "Mark as unwatched" else "Mark as watched") to {
+                store.setWatched(listOf(key), !watched, item.playlistId)
+                onChanged()
+            }
+        }
+        if (item !is LiveChannel && store.inHistory(section, item.id, item.playlistId)) opts += "Remove from Recently watched" to {
+            store.removeWatched(section, item.id, item.playlistId)
             onChanged()
         }
         AlertDialog.Builder(activity)

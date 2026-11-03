@@ -297,11 +297,12 @@ class PlayerActivity : BaseActivity() {
                         val entry = local[key]
                         val offline = if (entry != null && states[key]?.state == com.farloh.tv.data.DownloadState.DONE)
                             com.farloh.tv.data.Downloads.playable(this@PlayerActivity, entry) else null
-                        offline?.copy(tmdbId = info.tmdbId, seriesId = seriesId) ?: Playable(
+                        offline?.copy(tmdbId = info.tmdbId, seriesId = seriesId, cover = info.cover) ?: Playable(
                             Kind.EPISODE, ep.id, if (ep.title.isBlank()) "S${ep.season} E${ep.num}" else "S${ep.season} E${ep.num} · ${ep.title}",
                             acc.episodeUrl(ep.id, ep.ext), ep.image ?: info.cover,
                             subtitle = showName, searchTitle = showName, tmdbId = info.tmdbId, year = info.year.ifBlank { null },
                             season = ep.season, episode = ep.num, ext = ep.ext, playlistId = p.playlistId, seriesId = seriesId,
+                            cover = info.cover,
                         )
                     }
                     showList(queue, "$showName – $label")
@@ -921,6 +922,7 @@ class PlayerActivity : BaseActivity() {
             showInfo(focusButtons = false)
             loadEpg()
         } else {
+            com.farloh.tv.player.WatchLog.note(this, p)
             vodTitle.text = listOfNotNull(p.subtitle, p.title).joinToString(" — ")
             if (start > 0) toast("Resuming from ${Fmt.duration(start)}")
         }

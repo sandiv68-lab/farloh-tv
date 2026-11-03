@@ -190,10 +190,10 @@ class SettingsActivity : BaseActivity() {
                 store.searchHistoryLimit = it; refresh()
             }
         }
-        r += Row.Item("Channel history limit", limitLabel(store.historyLimit), "Size of the \"Recently watched\" group in Live TV") {
+        r += Row.Item("History limit", limitLabel(store.historyLimit), "Size of \"Recently watched\" in Live TV, Movies and TV Shows") {
             val labels = HISTORY_LIMITS.map { limitLabel(it) } + "Clear history now"
-            Dialogs.choose(this, "Channel history limit", labels, HISTORY_LIMITS + (-1), store.historyLimit) {
-                if (it == -1) { store.clearHistory(); toast("Channel history cleared") } else store.historyLimit = it
+            Dialogs.choose(this, "History limit", labels, HISTORY_LIMITS + (-1), store.historyLimit) {
+                if (it == -1) { store.clearHistory(); toast("Recently watched cleared (resume points kept)") } else store.historyLimit = it
                 refresh()
             }
         }
@@ -725,7 +725,7 @@ class SettingsActivity : BaseActivity() {
         private val ZOOMS = listOf(60, 70, 80, 90, 100, 110, 125)
         private val TEXT_ZOOMS = listOf(0, 80, 90, 100, 115, 130)
         val RESIZES = listOf("fit" to "Fit", "stretch" to "Stretch", "crop" to "Crop (fill screen)", "16:9" to "16:9", "4:3" to "4:3")
-        private val HISTORY_LIMITS = listOf(0, 10, 20, 50)
+        private val HISTORY_LIMITS = listOf(0, 10, 20, 50, 100)
         private val SEARCH_HISTORY = listOf(5, 10, 20)
         private val LANGUAGES = listOf(
             "" to "Device language", "en" to "English", "zh" to "Chinese", "ms" to "Malay", "ta" to "Tamil",
