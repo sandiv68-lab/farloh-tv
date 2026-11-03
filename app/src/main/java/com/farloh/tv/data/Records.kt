@@ -1,7 +1,6 @@
 package com.farloh.tv.data
 
 import android.content.Context
-import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -117,5 +116,4 @@ object Records {
         try { block() } catch (e: Exception) { android.util.Log.w("FarlohRecords", "record not saved", e) }
     }
 
-    fun jsonList(items: Collection<String>) = JSONArray(items.toList())
 }

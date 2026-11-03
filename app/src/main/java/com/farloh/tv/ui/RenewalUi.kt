@@ -36,7 +36,10 @@ object RenewalUi {
                 else -> "$matched of $total" + if (byName) " (matched by name)" else ""
             }
         }
-        val lost = if (r.lostEpisodes > 0) "\n\nThe progress of ${r.lostEpisodes} episode(s) couldn't be moved." else ""
+        val lost = (if (r.lostEpisodes > 0) "\n\nThe progress of ${r.lostEpisodes} episode(s) couldn't be moved." else "") +
+            if (r.hiddenByName) "\n\nHidden groups (parental control) were matched by name" +
+                (if (r.hiddenUnmatched > 0) " – ${r.hiddenUnmatched} couldn't be found" else "") +
+                ". Please check Settings → Parental control → Hide & arrange groups." else ""
         val from = r.fromPid?.let { a.store.playlist(it) }?.takeIf { it.id == r.fromPid }
         val b = AlertDialog.Builder(a)
         if (carry) {

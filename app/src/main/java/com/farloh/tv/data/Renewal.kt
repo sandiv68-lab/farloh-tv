@@ -149,8 +149,8 @@ object Renewal {
 
         val map: Map<String, String> = if (identity) refs.associateWith { it } else matchByName(sec, refs, names, data)
         val catMap: Map<String, String> = if (identity) emptyMap() else {
-            val byName = data.categories.groupBy { key(it.name, Section.LIVE) }
-            cats.keys().asSequence().mapNotNull { old -> byName[key(cats.getString(old), Section.LIVE)]?.firstOrNull()?.let { old to it.id } }.toMap()
+            val byName = data.categories.groupBy { catKey(it.name) }
+            cats.keys().asSequence().mapNotNull { old -> byName[catKey(cats.getString(old))]?.firstOrNull()?.let { old to it.id } }.toMap()
         }
         fun cat(id: String) = if (identity) id else catMap[id]
 
@@ -213,8 +213,10 @@ object Renewal {
         val hidden = o.optJSONArray("hidden").strings()
         val order = o.optJSONArray("order").strings()
         if (carry || replaceOld) {
+            // Hidden (parental control) groups: the old numbers stay hidden too, so a group that couldn't be
+            // matched by name is never shown by mistake.
             val curHidden = store.hiddenCategories(sec, pid)
-            store.setHiddenCategories(sec, (if (replaceOld) curHidden - hidden.toSet() else curHidden) + hidden.mapNotNull { cat(it) }, pid)
+            store.setHiddenCategories(sec, curHidden + hidden.mapNotNull { cat(it) }, pid)
             val curOrder = store.categoryOrder(sec, pid)
             if (order.isNotEmpty() && (replaceOld || curOrder.isEmpty())) store.setCategoryOrder(sec, order.mapNotNull { cat(it) }, pid)
             val sorts = o.optJSONObject("sort") ?: JSONObject()
@@ -228,7 +230,9 @@ object Renewal {
         }
 
         val matched = refs.count { map[it] != null }
+        val hiddenUnmatched = if (identity) 0 else hidden.count { cat(it) == null }
         return JSONObject().put("total", refs.size).put("matched", matched).put("byName", !identity).put("lostEpisodes", lostEpisodes)
+            .put("hiddenByName", !identity && hidden.isNotEmpty()).put("hiddenUnmatched", hiddenUnmatched)
     }
 
     private fun mergePosition(store: Store, key: String, p: Long, d: Long, pid: String, cur: Map<String, Pair<Long, Long>>,
@@ -308,7 +312,9 @@ object Renewal {
                  /** Section → (matched, total, matched by name). */
                  val sections: Map<Section, Triple<Int, Int, Boolean>>,
                  /** Episodes whose progress couldn't follow (their show wasn't known). */
-                 val lostEpisodes: Int)
+                 val lostEpisodes: Int,
+                 /** Hidden (parental control) groups were matched by name; how many couldn't be found. */
+                 val hiddenByName: Boolean, val hiddenUnmatched: Int)
 
     /**
      * Finished renewals / carry-overs (all three sections matched), removed once returned. A playlist whose
@@ -327,7 +333,8 @@ object Renewal {
             if (done.values.any { it == null }) continue
             out += Report(pid, root.optString("mode"), root.optString("from").ifEmpty { null }, root.optString("fromName").ifEmpty { null },
                 done.mapValues { (_, r) -> Triple(r!!.optInt("matched"), r.optInt("total"), r.optBoolean("byName")) },
-                done.values.sumOf { it!!.optInt("lostEpisodes") })
+                done.values.sumOf { it!!.optInt("lostEpisodes") },
+                done.values.any { it!!.optBoolean("hiddenByName") }, done.values.sumOf { it!!.optInt("hiddenUnmatched") })
             f.delete()
             pendingSet(ctx).remove(pid)
         }
@@ -352,6 +359,9 @@ object Renewal {
         s = s.replace(Regex("[^\\p{L}\\p{N}]+"), " ").replace(tags, " ")
         return s.trim().replace(Regex("\\s+"), " ")
     }
+
+    /** Group names: just no capitals or punctuation (their country prefixes matter: "UK | Sports" ≠ "US | Sports"). */
+    private fun catKey(name: String) = name.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
 
     private fun yearOf(item: CatalogItem): Int? {
         val date = when (item) { is Movie -> item.released; is Show -> item.year; else -> null }
