@@ -59,10 +59,10 @@ object Catalog {
     /** Cached data if available, otherwise downloads it once. */
     suspend fun load(ctx: Context, s: Section, pid: String? = null): SectionData = locks.getValue(s).withLock {
         val key = memKey(ctx, s, pid)
-        memory[key] ?: withContext(Dispatchers.IO) {
+        (memory[key] ?: withContext(Dispatchers.IO) {
             if (!itemFile(ctx, s, pid).exists() || !categoryFile(ctx, s, pid).exists()) download(ctx, s, pid)
             parse(ctx, s, pid)
-        }.also { remember(key, it) }
+        }.also { remember(key, it) }).also { afterLoad(ctx, s, pid, it) }
     }
 
     /** Manual refresh of one section. On failure the previous cache is kept. */
@@ -71,7 +71,21 @@ object Catalog {
         withContext(Dispatchers.IO) {
             download(ctx, s, pid)
             parse(ctx, s, pid)
-        }.also { remember(key, it) }
+        }.also { remember(key, it); afterLoad(ctx, s, pid, it) }
+    }
+
+    /** A renewed or carried-over playlist waits for its new lists to match its favourites etc. to them. */
+    private suspend fun afterLoad(ctx: Context, s: Section, pid: String?, data: SectionData) {
+        val id = pid(ctx, pid)
+        if (!Renewal.isPending(ctx, id)) return
+        withContext(Dispatchers.IO) { runCatching { Renewal.onLoaded(ctx, s, id, data) } }
+    }
+
+    /** The saved list if there is one, without downloading (null = none saved). */
+    fun cached(ctx: Context, s: Section, pid: String): SectionData? {
+        memory[memKey(ctx, s, pid)]?.let { return it }
+        if (!itemFile(ctx, s, pid).exists() || !categoryFile(ctx, s, pid).exists()) return null
+        return runCatching { parse(ctx, s, pid) }.getOrNull()
     }
 
     /** Keep at most 6 lists in memory (big combined playlists on small devices). */

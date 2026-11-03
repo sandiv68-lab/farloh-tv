@@ -125,6 +125,12 @@ class SeriesDetailActivity : BaseActivity() {
             try {
                 val i = Xtream.seriesInfo(account, seriesId)
                 info = i
+                // Note which show / season / number each episode is (renewals), and take over progress
+                // waiting from a renewal or Carry over.
+                runCatching {
+                    store.tagEpisodes(pid, seriesId, i.episodes.values.flatten())
+                    com.farloh.tv.data.Renewal.applyEpisodes(this@SeriesDetailActivity, pid, seriesId, i.episodes)
+                }
                 showInfo(i)
                 seasons = i.episodes.keys.toList()
                 if (seasons.isEmpty()) {

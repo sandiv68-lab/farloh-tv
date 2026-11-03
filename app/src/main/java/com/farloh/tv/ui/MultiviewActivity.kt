@@ -425,7 +425,8 @@ class MultiviewActivity : BaseActivity() {
         val exo = s.player ?: return
         if (p.kind == Kind.LIVE) return
         val dur = exo.duration
-        if (dur > 0 && dur != C.TIME_UNSET) store.savePosition(p.resumeKey, if (finished) dur else exo.currentPosition, dur, p.playlistId)
+        if (dur > 0 && dur != C.TIME_UNSET) store.savePosition(p.resumeKey, if (finished) dur else exo.currentPosition, dur, p.playlistId,
+            p.seriesId, p.season, p.episode)
     }
 
     /** Stops a window and empties it. */

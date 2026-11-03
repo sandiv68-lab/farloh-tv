@@ -21,7 +21,8 @@ object Backup {
         val payload = Store.get(ctx).exportForBackup()
             .put("created", java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(java.util.Date()))
             .put("appVersion", BuildConfig.VERSION_NAME)
-        val outer = JSONObject().put("format", FORMAT).put("version", 1).put("data", payload)
+        // Version 2 (1.9.3): playlists carry their sync id. Version 1 files still restore (they get new ones).
+        val outer = JSONObject().put("format", FORMAT).put("version", 2).put("data", payload)
         return outer.toString(2).toByteArray(Charsets.UTF_8)
     }
 

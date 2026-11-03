@@ -16,8 +16,11 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/** One saved server login. */
-data class Playlist(val id: String, val name: String, val account: Account)
+/**
+ * One saved server login. [sid] = its sync id: the same on every device and kept when the login is edited
+ * (renewals), so its favourites, history and progress follow it. Restored from backups as it was.
+ */
+data class Playlist(val id: String, val name: String, val account: Account, val sid: String = "")
 
 /** A movie, or a TV show (with [episode] = the episode watched last), in Recently watched. */
 data class WatchEntry(val id: String, val name: String, val image: String?, val time: Long, val episode: String? = null)
@@ -28,12 +31,19 @@ data class WatchEntry(val id: String, val name: String, val image: String?, val 
  */
 class Store private constructor(context: Context) {
 
+    private val app: Context = context.applicationContext
     private val prefs = context.getSharedPreferences("farloh_prefs", Context.MODE_PRIVATE)
     @Volatile private var cachedPlaylists: List<Playlist>? = null
 
     init {
         migrateSingleAccount()
         removeNetworkSettings()
+    }
+
+    /** After construction (the settings below the init block exist by then). */
+    private fun startup() {
+        ensureSyncIds()
+        if (!Records.flag(app, "filled_v1")) { fillRecords(); Records.setFlag(app, "filled_v1") }
     }
 
     // =================== Playlists ===================
@@ -48,7 +58,8 @@ class Store private constructor(context: Context) {
                 val arr = JSONArray(json)
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
-                    list.add(Playlist(o.getString("id"), o.getString("n"), Account(o.getString("s"), o.getString("u"), o.getString("p"))))
+                    list.add(Playlist(o.getString("id"), o.getString("n"), Account(o.getString("s"), o.getString("u"), o.getString("p")),
+                        o.optString("sid")))
                 }
             } catch (e: Exception) {
                 Log.w("FarlohStore", "Could not read saved playlists", e)
@@ -62,7 +73,7 @@ class Store private constructor(context: Context) {
         val arr = JSONArray()
         for (p in list) {
             arr.put(JSONObject().put("id", p.id).put("n", p.name)
-                .put("s", p.account.server).put("u", p.account.username).put("p", p.account.password))
+                .put("s", p.account.server).put("u", p.account.username).put("p", p.account.password).put("sid", p.sid))
         }
         prefs.edit().putString(KEY_PLAYLISTS, Crypto.encrypt(arr.toString())).apply()
         cachedPlaylists = list.toList()
@@ -81,22 +92,69 @@ class Store private constructor(context: Context) {
     fun setActive(id: String) = prefs.edit().putString(KEY_ACTIVE, id).apply()
 
     fun addPlaylist(name: String, account: Account): Playlist {
-        val p = Playlist("p" + System.currentTimeMillis().toString(36), name, account)
+        val p = Playlist("p" + System.currentTimeMillis().toString(36), name, account, newSyncId())
         savePlaylists(playlists() + p)
         setActive(p.id)
+        recordPlaylist(p, null)
         return p
     }
 
     fun updatePlaylist(id: String, name: String? = null, account: Account? = null) {
+        val old = playlists().firstOrNull { it.id == id }
         savePlaylists(playlists().map {
             if (it.id == id) it.copy(name = name ?: it.name, account = account ?: it.account) else it
         })
+        playlists().firstOrNull { it.id == id }?.let { recordPlaylist(it, old) }
+    }
+
+    // ---- Sync ids ----
+
+    private fun newSyncId(): String {
+        val chars = "abcdefghijkmnpqrstuvwxyz23456789"
+        val r = java.security.SecureRandom()
+        return (1..16).map { chars[r.nextInt(chars.length)] }.joinToString("")
+    }
+
+    /** Playlists saved before sync ids existed get one. */
+    private fun ensureSyncIds() {
+        val all = playlists()
+        if (all.none { it.sid.isEmpty() }) return
+        savePlaylists(all.map { if (it.sid.isEmpty()) it.copy(sid = newSyncId()) else it })
+    }
+
+    /** Sync id of a playlist (the one in use when [pid] is null). */
+    fun syncId(pid: String? = null): String? = playlist(pid)?.sid?.takeIf { it.isNotEmpty() }
+
+    /**
+     * Recognises a playlist on other devices without sending the login: a fingerprint of the server's
+     * address and the username (not the password, and not reversible).
+     */
+    fun fingerprint(a: Account): String {
+        val host = runCatching { android.net.Uri.parse(a.server).let { (it.host ?: "") + (if (it.port > 0) ":${it.port}" else "") } }
+            .getOrNull().orEmpty().lowercase().ifEmpty { a.server.lowercase() }
+        val d = MessageDigest.getInstance("SHA-256").digest("farloh-pl:$host|${a.username}".toByteArray())
+        return d.take(12).joinToString("") { "%02x".format(it) }
+    }
+
+    /** The playlist's name and every login it has had (renewals), as fingerprints. */
+    private fun recordPlaylist(p: Playlist, old: Playlist?) {
+        if (p.sid.isEmpty()) return
+        val prev = (Records.get(app, p.sid, "pl", p.sid)?.value as? JSONObject)?.optJSONArray("fp")
+        val fps = LinkedHashSet<String>()
+        prev?.let { a -> for (i in 0 until a.length()) fps += a.optString(i) }
+        old?.let { fps += fingerprint(it.account) }
+        fps += fingerprint(p.account)
+        if (old != null && old.name == p.name && fingerprint(old.account) == fingerprint(p.account) && prev != null) return
+        Records.put(app, p.sid, "pl", p.sid, JSONObject().put("n", p.name).put("fp", JSONArray(fps.toList())))
     }
 
     /** Removes a playlist and everything saved for it. Returns the playlist now active (or null if none left). */
     fun removePlaylist(id: String): Playlist? {
+        val gone = playlists().firstOrNull { it.id == id }
         val rest = playlists().filter { it.id != id }
         savePlaylists(rest)
+        // Only from this device: its records elsewhere (other devices, the cloud later) are left alone.
+        gone?.sid?.takeIf { it.isNotEmpty() }?.let { Records.dropScope(app, it) }
         val e = prefs.edit()
         prefs.all.keys.filter { it.startsWith("$id:") }.forEach { e.remove(it) }
         e.apply()
@@ -124,10 +182,15 @@ class Store private constructor(context: Context) {
     // ---- Combined view: several playlists shown together ----
     var combinedIds: Set<String>
         get() = HashSet(prefs.getStringSet("combined_ids", emptySet()) ?: emptySet())
-        set(value) = prefs.edit().putStringSet("combined_ids", HashSet(value)).apply()
+        set(value) { prefs.edit().putStringSet("combined_ids", HashSet(value)).apply(); recordCombined() }
     var combinedOn: Boolean
         get() = prefs.getBoolean("combined_on", false)
-        set(value) = prefs.edit().putBoolean("combined_on", value).apply()
+        set(value) { prefs.edit().putBoolean("combined_on", value).apply(); recordCombined() }
+
+    /** Combined lists, saved by sync id (playlist ids differ on each device). */
+    private fun combinedValue(): JSONObject = JSONObject().put("on", combinedOn)
+        .put("ids", JSONArray(combinedIds.mapNotNull { syncId(it) }))
+    private fun recordCombined() = Records.put(app, Records.SHARED, "set", "combined", combinedValue())
 
     /** Playlists shown together, in saved order (empty when the combined view is off or has fewer than 2). */
     fun combinedPlaylists(): List<Playlist> {
@@ -214,6 +277,7 @@ class Store private constructor(context: Context) {
         val set = favorites(section, pid)
         val added = if (set.contains(id)) { set.remove(id); false } else { set.add(id); true }
         prefs.edit().putStringSet(favKey(section, pid), set).apply()
+        syncId(pid)?.let { sid -> if (added) Records.put(app, sid, "fav.${section.key}", id, 1) else Records.delete(app, sid, "fav.${section.key}", id) }
         return added
     }
 
@@ -226,8 +290,9 @@ class Store private constructor(context: Context) {
     fun addToHistory(id: String, pid: String? = null) {
         if (historyLimit <= 0) return
         val list = (listOf(id) + history(pid).filter { it != id }).take(MAX_HISTORY)
-        prefs.edit().putString(k("history", pid), JSONArray(list).toString()).apply()
-        prefs.edit().putLong(k("history_time_$id", pid), System.currentTimeMillis()).apply()
+        val now = System.currentTimeMillis()
+        prefs.edit().putString(k("history", pid), JSONArray(list).toString()).putLong(k("history_time_$id", pid), now).apply()
+        syncId(pid)?.let { Records.put(app, it, "hist", id, JSONObject().put("t", now)) }
     }
 
     /** When a channel was last watched (for ordering combined history). */
@@ -237,6 +302,11 @@ class Store private constructor(context: Context) {
     fun clearHistory() {
         val e = prefs.edit()
         for (p in viewPlaylists()) {
+            if (p.sid.isNotEmpty()) {
+                Records.putAll(app, p.sid, history(p.id).map { Triple("hist", it, null) } +
+                    watchHistory(Section.MOVIES, p.id).map { Triple("watch.vod", it.id, null) } +
+                    watchHistory(Section.SERIES, p.id).map { Triple("watch.series", it.id, null) }, delete = true)
+            }
             e.remove(k("history", p.id)).remove(k("watched_vod", p.id)).remove(k("watched_series", p.id))
             prefs.all.keys.filter { it.startsWith("${p.id}:history_time_") }.forEach { e.remove(it) }
         }
@@ -276,26 +346,114 @@ class Store private constructor(context: Context) {
         val prev = old.firstOrNull { it.id == entry.id }
         val e = entry.copy(name = entry.name.ifBlank { prev?.name.orEmpty() }, image = entry.image ?: prev?.image ?: fallbackImage)
         saveWatchHistory(section, pid, listOf(e) + old.filter { it.id != entry.id })
+        syncId(pid)?.let { Records.put(app, it, "watch.${section.key}", e.id, watchValue(e)) }
+    }
+
+    private fun watchValue(w: WatchEntry) = JSONObject().put("n", w.name).put("t", w.time).apply {
+        w.image?.let { put("i", it) }
+        w.episode?.let { put("e", it) }
     }
 
     fun removeWatched(section: Section, id: String, pid: String? = null) {
+        val sid = syncId(pid)
         if (section == Section.LIVE) {
             prefs.edit().putString(k("history", pid), JSONArray(history(pid).filter { it != id }).toString())
                 .remove(k("history_time_$id", pid)).apply()
+            sid?.let { Records.delete(app, it, "hist", id) }
             return
         }
         saveWatchHistory(section, pid, watchHistory(section, pid).filter { it.id != id })
+        sid?.let { Records.delete(app, it, "watch.${section.key}", id) }
     }
 
     fun inHistory(section: Section, id: String, pid: String? = null): Boolean =
         if (section == Section.LIVE) id in history(pid) else watchHistory(section, pid).any { it.id == id }
 
+    // ---- For renewals and Carry over (moving a playlist's data to new numbers) ----
+
+    fun setFavorites(section: Section, ids: Set<String>, pid: String?) {
+        val old = favorites(section, pid)
+        prefs.edit().putStringSet(favKey(section, pid), HashSet(ids)).apply()
+        syncId(pid)?.let { sid ->
+            Records.putAll(app, sid, (ids - old).map { Triple("fav.${section.key}", it, 1) })
+            Records.putAll(app, sid, (old - ids).map { Triple("fav.${section.key}", it, null) }, delete = true)
+        }
+    }
+
+    /** Live TV history as (channel, time), newest first. */
+    fun historyWithTimes(pid: String?): List<Pair<String, Long>> = history(pid).map { it to historyTime(it, pid) }
+
+    fun setHistory(list: List<Pair<String, Long>>, pid: String?) {
+        val old = history(pid)
+        val sorted = list.sortedByDescending { it.second }.distinctBy { it.first }.take(MAX_HISTORY)
+        val e = prefs.edit().putString(k("history", pid), JSONArray(sorted.map { it.first }).toString())
+        old.forEach { e.remove(k("history_time_$it", pid)) }
+        sorted.forEach { (id, t) -> e.putLong(k("history_time_$id", pid), t) }
+        e.apply()
+        syncId(pid)?.let { sid ->
+            Records.putAll(app, sid, sorted.map { (id, t) -> Triple("hist", id, JSONObject().put("t", t)) })
+            Records.putAll(app, sid, (old - sorted.map { it.first }.toSet()).map { Triple("hist", it, null) }, delete = true)
+        }
+    }
+
+    fun setWatchHistory(section: Section, list: List<WatchEntry>, pid: String?) {
+        val old = watchHistory(section, pid).map { it.id }.toSet()
+        val sorted = list.sortedByDescending { it.time }.distinctBy { it.id }
+        saveWatchHistory(section, pid, sorted)
+        syncId(pid)?.let { sid ->
+            Records.putAll(app, sid, sorted.take(MAX_HISTORY).map { Triple("watch.${section.key}", it.id, watchValue(it)) })
+            Records.putAll(app, sid, (old - sorted.take(MAX_HISTORY).map { it.id }.toSet()).map { Triple("watch.${section.key}", it, null) }, delete = true)
+        }
+    }
+
+    /** Resume points of a playlist: key (e.g. MOVIE_123) → (position, duration). */
+    fun positions(pid: String?): Map<String, Pair<Long, Long>> {
+        val prefix = k("pos_", pid)
+        val out = HashMap<String, Pair<Long, Long>>()
+        for ((key, v) in prefs.all) {
+            if (!key.startsWith(prefix) || v !is Long) continue
+            val item = key.removePrefix(prefix)
+            out[item] = v to prefs.getLong(k("dur_$item", pid), 0)
+        }
+        return out
+    }
+
+    /** Show / season / episode number saved with an episode's resume point, if known. */
+    fun episodeTag(key: String, pid: String?): Triple<String, Int, Int>? {
+        val v = syncId(pid)?.let { Records.get(app, it, "pos", key)?.value as? JSONObject } ?: return null
+        val show = v.optString("sh").ifEmpty { return null }
+        if (!v.has("s") || !v.has("e")) return null
+        return Triple(show, v.optInt("s"), v.optInt("e"))
+    }
+
+    fun removePositions(keys: Collection<String>, pid: String?) {
+        if (keys.isEmpty()) return
+        val e = prefs.edit()
+        keys.forEach { e.remove(k("pos_$it", pid)).remove(k("dur_$it", pid)) }
+        e.apply()
+        syncId(pid)?.let { sid -> Records.putAll(app, sid, keys.map { Triple("pos", it, null) }, delete = true) }
+    }
+
+    /** Sort choices for a playlist's own categories: category → mode. */
+    fun sortsFor(section: Section, pid: String): Map<String, String> {
+        val prefix = "sort_${section.key}_$pid|"
+        return prefs.all.filter { it.key.startsWith(prefix) && it.value is String }
+            .map { it.key.removePrefix(prefix) to (it.value as String) }.toMap()
+    }
+
+    fun removeSort(section: Section, category: String) {
+        prefs.edit().remove("sort_${section.key}_$category").apply()
+        sortRecord(section, category)?.let { (scope, id) -> Records.delete(app, scope, "sort", id) }
+    }
+
     /** Category ids hidden by parental control for a section. */
     fun hiddenCategories(section: Section, pid: String? = null): Set<String> =
         HashSet(prefs.getStringSet(k("hidden_${section.key}", pid), emptySet()) ?: emptySet())
 
-    fun setHiddenCategories(section: Section, ids: Set<String>) =
-        prefs.edit().putStringSet(k("hidden_${section.key}"), HashSet(ids)).apply()
+    fun setHiddenCategories(section: Section, ids: Set<String>, pid: String? = null) {
+        prefs.edit().putStringSet(k("hidden_${section.key}", pid), HashSet(ids)).apply()
+        syncId(pid)?.let { Records.put(app, it, "hidden.${section.key}", "all", JSONArray(ids.sorted())) }
+    }
 
     /** Your own order of the categories (Settings → Parental control → Hide & arrange groups); empty = server order. */
     fun categoryOrder(section: Section, pid: String? = null): List<String> = runCatching {
@@ -303,8 +461,10 @@ class Store private constructor(context: Context) {
         (0 until a.length()).map { a.getString(it) }
     }.getOrDefault(emptyList())
 
-    fun setCategoryOrder(section: Section, ids: List<String>) =
-        prefs.edit().putString(k("order_${section.key}"), JSONArray(ids).toString()).apply()
+    fun setCategoryOrder(section: Section, ids: List<String>, pid: String? = null) {
+        prefs.edit().putString(k("order_${section.key}", pid), JSONArray(ids).toString()).apply()
+        syncId(pid)?.let { Records.put(app, it, "order.${section.key}", "all", JSONArray(ids)) }
+    }
 
     /** [cats] in your order; categories you haven't placed (e.g. new ones) follow in the server's order. */
     fun ordered(section: Section, pid: String?, cats: List<Category>): List<Category> {
@@ -314,8 +474,30 @@ class Store private constructor(context: Context) {
         return cats.withIndex().sortedBy { (i, c) -> rank[c.id]?.toLong() ?: (order.size.toLong() + i) }.map { it.value }
     }
 
-    fun savePosition(key: String, positionMs: Long, durationMs: Long, pid: String? = null) {
+    /** [show], [season], [episode]: for episodes, so progress can follow a show to a renewed server. */
+    fun savePosition(key: String, positionMs: Long, durationMs: Long, pid: String? = null,
+                     show: String? = null, season: Int? = null, episode: Int? = null) {
         prefs.edit().putLong(k("pos_$key", pid), positionMs).putLong(k("dur_$key", pid), durationMs).apply()
+        syncId(pid)?.let { sid ->
+            val old = Records.get(app, sid, "pos", key)?.value as? JSONObject
+            val v = JSONObject().put("p", positionMs).put("d", durationMs)
+            (show ?: old?.optString("sh")?.ifEmpty { null })?.let { v.put("sh", it) }
+            (season ?: old?.optInt("s", -1)?.takeIf { it >= 0 })?.let { v.put("s", it) }
+            (episode ?: old?.optInt("e", -1)?.takeIf { it >= 0 })?.let { v.put("e", it) }
+            Records.put(app, sid, "pos", key, v)
+        }
+    }
+
+    /** The show screen tells which show / season / number its episodes are (for renewals). Not a change. */
+    fun tagEpisodes(pid: String?, show: String, episodes: List<Episode>) {
+        val sid = syncId(pid) ?: return
+        for (ep in episodes) {
+            val key = "EPISODE_${ep.id}"
+            if (!prefs.contains(k("pos_$key", pid))) continue
+            Records.amend(app, sid, "pos", key) { v ->
+                if (v.has("sh")) false else { v.put("sh", show).put("s", ep.season).put("e", ep.num); true }
+            }
+        }
     }
 
     /** Saved position, or 0 if never started / watched. */
@@ -340,15 +522,23 @@ class Store private constructor(context: Context) {
     /** Mark as watched (full bar) or unwatched (no bar, starts from the beginning). */
     fun setWatched(keys: List<String>, watched: Boolean, pid: String? = null) {
         val e = prefs.edit()
+        val changes = ArrayList<Triple<String, String, Any?>>()
+        val sid = syncId(pid)
         for (key in keys) {
             if (watched) {
                 val dur = prefs.getLong(k("dur_$key", pid), 0).takeIf { it > 0 } ?: 1L
                 e.putLong(k("pos_$key", pid), dur).putLong(k("dur_$key", pid), dur)
+                val old = sid?.let { Records.get(app, it, "pos", key)?.value as? JSONObject }
+                changes += Triple("pos", key, JSONObject(old?.toString() ?: "{}").put("p", dur).put("d", dur))
             } else {
                 e.remove(k("pos_$key", pid)).remove(k("dur_$key", pid))
             }
         }
         e.apply()
+        if (sid != null) {
+            if (watched) Records.putAll(app, sid, changes)
+            else Records.putAll(app, sid, keys.filter { Records.get(app, sid, "pos", it) != null }.map { Triple("pos", it, null) }, delete = true)
+        }
     }
 
     // =================== App-wide settings ===================
@@ -412,9 +602,16 @@ class Store private constructor(context: Context) {
         if (category == null) {
             // All categories: the new default, and per-category choices are cleared.
             e.putString("sort_${section.key}", mode)
-            prefs.all.keys.filter { it.startsWith("sort_${section.key}_") }.forEach { e.remove(it) }
-        } else e.putString("sort_${section.key}_$category", mode)
-        e.apply()
+            val cleared = prefs.all.keys.filter { it.startsWith("sort_${section.key}_") }
+            cleared.forEach { e.remove(it) }
+            e.apply()
+            Records.put(app, Records.SHARED, "sort", "${section.key}|*", mode)
+            for (key in cleared) sortRecord(section, key.removePrefix("sort_${section.key}_"))?.let { (scope, id) -> Records.delete(app, scope, "sort", id) }
+        } else {
+            e.putString("sort_${section.key}_$category", mode)
+            e.apply()
+            sortRecord(section, category)?.let { (scope, id) -> Records.put(app, scope, "sort", id, mode) }
+        }
     }
 
     // ---- Search history (all playlists) ----
@@ -426,8 +623,10 @@ class Store private constructor(context: Context) {
         (0 until a.length()).map { a.getString(it) }
     }.getOrDefault(emptyList()).take(searchHistoryLimit)
 
-    private fun saveSearchHistory(list: List<String>) =
+    private fun saveSearchHistory(list: List<String>) {
         prefs.edit().putString("search_history", JSONArray(list.take(searchHistoryLimit)).toString()).apply()
+        Records.put(app, Records.SHARED, "search", "all", JSONArray(list.take(searchHistoryLimit)))
+    }
 
     /** Newest first; the same search isn't kept twice. */
     fun addSearch(text: String) {
@@ -437,7 +636,10 @@ class Store private constructor(context: Context) {
     }
 
     fun removeSearch(text: String) = saveSearchHistory(searchHistory().filter { it != text })
-    fun clearSearchHistory() = prefs.edit().remove("search_history").apply()
+    fun clearSearchHistory() {
+        prefs.edit().remove("search_history").apply()
+        Records.put(app, Records.SHARED, "search", "all", JSONArray())
+    }
 
     /** The first-start "Allow notifications / files" question has been shown on this device. */
     var permissionsAsked: Boolean by BoolPref("permissions_asked", false)
@@ -487,6 +689,7 @@ class Store private constructor(context: Context) {
     val hasPin: Boolean get() = prefs.getString("parental_pin", null) != null
     fun setPin(pin: String?) {
         prefs.edit().apply { if (pin.isNullOrEmpty()) remove("parental_pin") else putString("parental_pin", hash(pin)) }.apply()
+        Records.put(app, Records.SHARED, "set", "parental_pin", prefs.getString("parental_pin", null) ?: "")
     }
     fun checkPin(pin: String): Boolean = prefs.getString("parental_pin", null) == hash(pin)
     private fun hash(pin: String): String =
@@ -529,8 +732,10 @@ class Store private constructor(context: Context) {
     fun importFromBackup(data: JSONObject) {
         val values = data.optJSONObject("prefs") ?: throw IllegalArgumentException("Backup has no settings")
         val secrets = data.optJSONObject("secrets") ?: JSONObject()
-        // Screen settings belong to this device (a phone backup shouldn't resize a TV), so keep them.
-        val keep = DEVICE_KEYS.mapNotNull { k -> prefs.all[k]?.let { k to it } }
+        // Settings that belong to this device stay as they are (a phone backup shouldn't resize a TV). Screen
+        // settings are never taken from the backup; player settings only when this device hasn't set them.
+        val keep = (DEVICE_KEYS + DEVICE_FILL_KEYS).mapNotNull { k -> prefs.all[k]?.let { k to it } }
+        val kept = keep.map { it.first }.toSet()
         val e = prefs.edit().clear()
         for ((k, v) in keep) when (v) {
             is String -> e.putString(k, v)
@@ -538,7 +743,7 @@ class Store private constructor(context: Context) {
             is Boolean -> e.putBoolean(k, v)
         }
         for (k in values.keys()) {
-            if (k in SECRET_KEYS || k in DEVICE_KEYS) continue
+            if (k in SECRET_KEYS || k in DEVICE_KEYS || k in kept) continue
             val o = values.optJSONObject(k) ?: continue
             when (o.optString("t")) {
                 "s" -> e.putString(k, o.optString("v"))
@@ -558,20 +763,85 @@ class Store private constructor(context: Context) {
         }
         e.commit()
         cachedPlaylists = null
+        // The records now follow the restored settings.
+        Records.clearAll(app)
+        ensureSyncIds()
+        fillRecords()
+        Records.setFlag(app, "filled_v1")
+    }
+
+    // =================== Records (groundwork for sync) ===================
+
+    /** Shared settings change on this device: noted for sync (this-device-only settings aren't). */
+    private fun recordSetting(key: String, value: Any) {
+        if (key in SHARED_KEYS) Records.put(app, Records.SHARED, "set", key, value)
+    }
+
+    /** A sort choice's record: per playlist for its own categories ("pid|category"), shared otherwise. */
+    private fun sortRecord(section: Section, category: String): Pair<String, String>? {
+        val bar = category.indexOf('|')
+        if (bar > 0) {
+            val sid = syncId(category.substring(0, bar)) ?: return null
+            return sid to "${section.key}|${category.substring(bar + 1)}"
+        }
+        return Records.SHARED to "${section.key}|$category"
+    }
+
+    /** Records for everything saved so far that has none (first start of this version, after a restore). */
+    private fun fillRecords() {
+        val all = prefs.all
+        for (pl in playlists()) {
+            if (pl.sid.isEmpty()) continue
+            val pid = pl.id
+            val list = ArrayList<Triple<String, String, Any?>>()
+            for (sec in Section.values()) {
+                favorites(sec, pid).forEach { list += Triple("fav.${sec.key}", it, 1) }
+                if (sec != Section.LIVE) watchHistory(sec, pid).forEach { list += Triple("watch.${sec.key}", it.id, watchValue(it)) }
+                prefs.getStringSet(k("hidden_${sec.key}", pid), null)?.let { list += Triple("hidden.${sec.key}", "all", JSONArray(it.sorted())) }
+                if (prefs.contains(k("order_${sec.key}", pid))) list += Triple("order.${sec.key}", "all", JSONArray(categoryOrder(sec, pid)))
+            }
+            history(pid).forEach { list += Triple("hist", it, JSONObject().put("t", historyTime(it, pid))) }
+            val posPrefix = "$pid:pos_"
+            for ((key, v) in all) {
+                if (!key.startsWith(posPrefix) || v !is Long) continue
+                val item = key.removePrefix(posPrefix)
+                list += Triple("pos", item, JSONObject().put("p", v).put("d", prefs.getLong(k("dur_$item", pid), 0)))
+            }
+            Records.fill(app, pl.sid, list)
+            recordPlaylist(pl, null)
+        }
+        val shared = ArrayList<Triple<String, String, Any?>>()
+        for (key in SHARED_KEYS) all[key]?.let { shared += Triple("set", key, it) }
+        prefs.getString("parental_pin", null)?.let { shared += Triple("set", "parental_pin", it) }
+        if (prefs.contains("combined_on") || prefs.contains("combined_ids")) shared += Triple("set", "combined", combinedValue())
+        if (prefs.contains("search_history")) shared += Triple("search", "all", JSONArray(searchHistory()))
+        Records.fill(app, Records.SHARED, shared)
+        for ((key, v) in all) {
+            if (!key.startsWith("sort_") || v !is String) continue
+            val sec = Section.values().firstOrNull { key == "sort_${it.key}" || key.startsWith("sort_${it.key}_") } ?: continue
+            if (key == "sort_${sec.key}") { Records.fill(app, Records.SHARED, listOf(Triple("sort", "${sec.key}|*", v))); continue }
+            sortRecord(sec, key.removePrefix("sort_${sec.key}_"))?.let { (scope, id) -> Records.fill(app, scope, listOf(Triple("sort", id, v))) }
+        }
     }
 
     // ---- small delegates for app-wide prefs ----
     private inner class StringPref(val key: String, val def: String) : kotlin.properties.ReadWriteProperty<Any?, String> {
         override fun getValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>) = prefs.getString(key, def) ?: def
-        override fun setValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>, value: String) = prefs.edit().putString(key, value).apply()
+        override fun setValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>, value: String) {
+            prefs.edit().putString(key, value).apply(); recordSetting(key, value)
+        }
     }
     private inner class BoolPref(val key: String, val def: Boolean) : kotlin.properties.ReadWriteProperty<Any?, Boolean> {
         override fun getValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>) = prefs.getBoolean(key, def)
-        override fun setValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>, value: Boolean) = prefs.edit().putBoolean(key, value).apply()
+        override fun setValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>, value: Boolean) {
+            prefs.edit().putBoolean(key, value).apply(); recordSetting(key, value)
+        }
     }
     private inner class IntPref(val key: String, val def: Int) : kotlin.properties.ReadWriteProperty<Any?, Int> {
         override fun getValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>) = prefs.getInt(key, def)
-        override fun setValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>, value: Int) = prefs.edit().putInt(key, value).apply()
+        override fun setValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>, value: Int) {
+            prefs.edit().putInt(key, value).apply(); recordSetting(key, value)
+        }
     }
 
     companion object {
@@ -583,8 +853,17 @@ class Store private constructor(context: Context) {
         const val MAX_HISTORY = 100
         /** Stored encrypted with this device's key; exported in plain text inside the (password-protected) backup. */
         private val SECRET_KEYS = setOf(KEY_PLAYLISTS, "subs_password", "subs_api_key")
-        /** Per-device screen settings that a restore leaves as they are. */
+        /** This device only: screen and similar settings a restore leaves as they are. Never synced. */
         private val DEVICE_KEYS = setOf("device_mode", "ui_zoom", "text_zoom", "orientation", "permissions_asked", "audio_delay_ms", "video_resize", "multiview_warning_off", "audio_output", "rec_folder")
+        /** This device only: player and storage settings. Restored only when this device hasn't set them. Never synced. */
+        private val DEVICE_FILL_KEYS = setOf("external_default", "decoder_mode", "buffer_size", "live_format", "pip_enabled",
+            "pip_on_back", "player_gestures", "image_cache_mb", "epg_minutes", "multiview_layout")
+        /**
+         * Shared by all devices (synced): subtitles, list sizes, recording margins. Also shared, saved separately:
+         * the parental PIN, combined lists, search history and sort choices.
+         */
+        private val SHARED_KEYS = setOf("subtitle_mode", "subtitle_language", "subs_languages", "subs_server", "subs_custom_url",
+            "history_limit", "recent_limit", "search_history_limit", "rec_pad_before", "rec_pad_after")
 
         fun defaultName(account: Account): String =
             runCatching { android.net.Uri.parse(account.server).host }.getOrNull()?.takeIf { it.isNotBlank() } ?: account.username
@@ -592,7 +871,7 @@ class Store private constructor(context: Context) {
         @Volatile private var instance: Store? = null
         fun get(context: Context): Store =
             instance ?: synchronized(this) {
-                instance ?: Store(context.applicationContext).also { instance = it }
+                instance ?: Store(context.applicationContext).also { instance = it; runCatching { it.startup() } }
             }
     }
 }

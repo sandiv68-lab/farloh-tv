@@ -147,6 +147,8 @@ class LoginActivity : BaseActivity() {
                     val edit = editing
                     if (edit != null) {
                         val changed = !edit.account.server.equals(account.server, true) || edit.account.username != account.username
+                        // Renewal: keep a copy (with the titles' names) to match to the new server's lists.
+                        if (changed) runCatching { com.farloh.tv.data.Renewal.prepareEdit(this@LoginActivity, edit.id) }
                         store.updatePlaylist(edit.id, name = name, account = account)
                         if (changed) { Catalog.deleteFor(this@LoginActivity, edit.id); store.resetLoaded(edit.id) }
                         val wasActive = edit.id == store.activePlaylist?.id

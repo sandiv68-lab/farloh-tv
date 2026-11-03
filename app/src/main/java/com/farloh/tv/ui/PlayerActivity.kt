@@ -1026,7 +1026,7 @@ class PlayerActivity : BaseActivity() {
     private fun onVideoEnded() {
         val exo = player ?: return
         val dur = exo.duration
-        if (dur > 0) store.savePosition(current.resumeKey, dur, dur, current.playlistId)
+        if (dur > 0) current.let { store.savePosition(it.resumeKey, dur, dur, it.playlistId, it.seriesId, it.season, it.episode) }
         if (index + 1 < items.size) {
             index++
             toast("Next: ${current.title}")
@@ -1040,7 +1040,9 @@ class PlayerActivity : BaseActivity() {
         val exo = player ?: return
         if (items.isEmpty() || isLive) return
         val dur = exo.duration
-        if (dur > 0 && dur != C.TIME_UNSET) store.savePosition(current.resumeKey, exo.currentPosition, dur, current.playlistId)
+        if (dur > 0 && dur != C.TIME_UNSET) current.let {
+            store.savePosition(it.resumeKey, exo.currentPosition, dur, it.playlistId, it.seriesId, it.season, it.episode)
+        }
     }
 
     private fun showStatus(msg: String) {

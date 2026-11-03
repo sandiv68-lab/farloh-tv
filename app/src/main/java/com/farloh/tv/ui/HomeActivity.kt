@@ -85,6 +85,7 @@ class HomeActivity : BaseActivity() {
         showHeader()
         Section.values().forEach { updateTile(it) }
         updateBell()
+        RenewalUi.showReports(this)
         checkNews(force = false)
         handler.removeCallbacks(newsTick)
         handler.postDelayed(newsTick, 3 * 3600_000L)
@@ -272,6 +273,7 @@ class HomeActivity : BaseActivity() {
                 updateTile(section)
             }
             ok.filterValues { it }.keys.forEach { store.setLoaded(it) }
+            RenewalUi.showReports(this@HomeActivity)
         }
     }
 

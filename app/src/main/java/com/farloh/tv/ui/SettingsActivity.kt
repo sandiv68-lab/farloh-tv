@@ -629,6 +629,8 @@ class SettingsActivity : BaseActivity() {
         opts += "Edit server & login" to {
             startActivity(Intent(this, LoginActivity::class.java).putExtra(LoginActivity.EXTRA_EDIT, p.id))
         }
+        val others = store.playlists().filter { it.id != p.id }
+        if (others.isNotEmpty()) opts += "Carry over from another playlist…" to { carryOver(p, others) }
         opts += "Rename" to {
             Dialogs.input(this, "Playlist name", p.name) { name ->
                 store.updatePlaylist(p.id, name = name.trim().ifEmpty { p.name }); refresh()
@@ -651,6 +653,32 @@ class SettingsActivity : BaseActivity() {
             .setTitle(p.name)
             .setItems(opts.map { it.first }.toTypedArray()) { _, which -> opts[which].second() }
             .setNegativeButton("Close", null)
+            .show()
+    }
+
+    /** Renewal added as a new playlist: bring the old one's favourites, history, progress and groups across. */
+    private fun carryOver(to: com.farloh.tv.data.Playlist, others: List<com.farloh.tv.data.Playlist>) {
+        AlertDialog.Builder(this)
+            .setTitle("Carry over to ${to.name} from…")
+            .setItems(others.map { "${it.name}   (${it.account.username})" }.toTypedArray()) { _, which ->
+                val from = others[which]
+                Dialogs.confirm(this, "Carry over from ${from.name}?",
+                    "Its favourites, history, progress and group settings are added to ${to.name}. What ${to.name} " +
+                        "already has is kept. If the numbers differ, titles are matched by name.", "Carry over") {
+                    com.farloh.tv.data.Renewal.prepareCarry(this, from.id, to.id)
+                    toast("Matching ${to.name}'s lists…", long = true)
+                    lifecycleScope.launch {
+                        for (sec in com.farloh.tv.data.Section.values()) {
+                            try { Catalog.load(this@SettingsActivity, sec, to.id) } catch (e: Exception) {
+                                toast("${sec.title}: ${com.farloh.tv.net.Net.friendlyError(e)}", long = true)
+                            }
+                        }
+                        refresh()
+                        RenewalUi.showReports(this@SettingsActivity)
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
             .show()
     }
 
