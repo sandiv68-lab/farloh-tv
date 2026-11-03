@@ -43,10 +43,15 @@ object Renewal {
         save(ctx, pid, snapshot(ctx, pid).put("mode", MODE_EDIT))
     }
 
-    /** Carry over everything from [fromPid] into [toPid] (added to what [toPid] already has). */
-    fun prepareCarry(ctx: Context, fromPid: String, toPid: String) {
-        val from = Store.get(ctx).playlist(fromPid) ?: return
+    /**
+     * Carry over everything from [fromPid] into [toPid] (added to what [toPid] already has).
+     * False if [toPid] is still waiting for its own renewal to finish.
+     */
+    fun prepareCarry(ctx: Context, fromPid: String, toPid: String): Boolean {
+        val from = Store.get(ctx).playlist(fromPid)?.takeIf { it.id == fromPid } ?: return false
+        if (file(ctx, toPid).exists()) return false
         save(ctx, toPid, snapshot(ctx, fromPid).put("mode", MODE_CARRY).put("from", fromPid).put("fromName", from.name))
+        return true
     }
 
     private fun save(ctx: Context, pid: String, o: JSONObject) {

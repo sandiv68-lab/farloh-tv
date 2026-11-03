@@ -44,6 +44,8 @@ class Store private constructor(context: Context) {
     private fun startup() {
         ensureSyncIds()
         if (!Records.flag(app, "filled_v1")) { fillRecords(); Records.setFlag(app, "filled_v1") }
+        // Records of playlists that are no longer here (e.g. after going back to an older version and forward again).
+        Records.keepOnly(app, playlists().map { it.sid }.toSet() + Records.SHARED)
     }
 
     // =================== Playlists ===================

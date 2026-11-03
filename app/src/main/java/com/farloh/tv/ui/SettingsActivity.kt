@@ -665,7 +665,10 @@ class SettingsActivity : BaseActivity() {
                 Dialogs.confirm(this, "Carry over from ${from.name}?",
                     "Its favourites, history, progress and group settings are added to ${to.name}. What ${to.name} " +
                         "already has is kept. If the numbers differ, titles are matched by name.", "Carry over") {
-                    com.farloh.tv.data.Renewal.prepareCarry(this, from.id, to.id)
+                    if (!com.farloh.tv.data.Renewal.prepareCarry(this, from.id, to.id)) {
+                        toast("${to.name}'s new lists haven't loaded yet. Open it once, then try again.", long = true)
+                        return@confirm
+                    }
                     toast("Matching ${to.name}'s lists…", long = true)
                     lifecycleScope.launch {
                         for (sec in com.farloh.tv.data.Section.values()) {

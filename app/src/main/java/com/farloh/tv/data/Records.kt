@@ -82,6 +82,15 @@ object Records {
         e.apply()
     }
 
+    /** Forgets the records of every scope not in [scopes]. */
+    fun keepOnly(ctx: Context, scopes: Set<String>) = safe {
+        val gone = p(ctx).all.keys.filter { !it.startsWith("meta:") && it.substringBefore('|') !in scopes }
+        if (gone.isEmpty()) return@safe
+        val e = p(ctx).edit()
+        gone.forEach { e.remove(it) }
+        e.apply()
+    }
+
     /** After a restore: the records are rebuilt from the restored settings. */
     fun clearAll(ctx: Context) = safe { p(ctx).edit().clear().apply() }
 
